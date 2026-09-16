@@ -1,0 +1,28 @@
+# Candidate stores for the MVP.
+#
+# Fill `url` with ONE real, in-stock product page per store you care about. Pick a
+# boring, long-lived product (an appliance, a tool), not a limited-time deal that
+# will 404 next week and make the measurement look like a block.
+#
+# Leave `url` empty to skip a store. Nothing here is committed to a store choice;
+# the measurement decides.
+
+[[store]]
+name = "mercadolibre"
+url = ""
+
+[[store]]
+name = "amazon-mx"
+url = ""
+
+[[store]]
+name = "liverpool"
+url = ""
+
+[[store]]
+name = "cyberpuerta"
+url = ""
+
+[[store]]
+name = "walmart-mx"
+url = ""

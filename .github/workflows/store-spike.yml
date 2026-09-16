@@ -1,0 +1,37 @@
+# Runs the store viability spike from a GitHub-hosted runner.
+#
+# The point is the runner's network: GitHub Actions egresses from Azure datacenter
+# ranges, which is the same class of IP every free hosting tier gives us. If a store
+# answers here, a free cloud cron can check it. If it 403s here but works from a
+# laptop, that store needs a residential IP and the bot has to run on one.
+#
+# Manual trigger only. This makes real requests to real stores; it should not fire
+# on every push.
+name: store-spike
+
+on:
+  workflow_dispatch:
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Probe stores
+        run: |
+          uv run python scripts/store_spike.py \
+            --label "github-actions $(date -u +%Y-%m-%d)" \
+            --out spike-results/github-actions.json \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spike-results
+          path: spike-results/

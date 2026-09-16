@@ -1,0 +1,26 @@
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local database
+*.db
+*.sqlite3
+
+# Spike output (measurements are committed to docs/, raw runs are not)
+spike-results/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

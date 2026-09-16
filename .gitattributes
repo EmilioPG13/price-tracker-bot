@@ -1,0 +1,8 @@
+# Development happens on Windows; CI, Docker and production are Linux.
+# Normalise to LF in the repository so a CRLF never reaches a shell script or an
+# entrypoint and fails with an unreadable "\r: not found".
+* text=auto eol=lf
+
+# Saved store pages are evidence; byte-for-byte or they are not fixtures.
+tests/fixtures/** -text
+*.png binary
