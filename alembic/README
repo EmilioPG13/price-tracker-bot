@@ -1,0 +1,10 @@
+Schema migrations, on an async engine.
+
+Generated with `alembic init -t async`; the default template is synchronous and cannot
+drive the async engine this project uses. `env.py` explains the three changes made to it.
+
+    uv run alembic revision --autogenerate -m "what changed"
+    uv run alembic upgrade head
+    uv run alembic downgrade -1
+
+The database URL comes from DATABASE_URL (or .env), never from alembic.ini.

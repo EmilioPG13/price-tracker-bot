@@ -13,6 +13,11 @@ dependencies = [
     "httpx>=0.28",
     "selectolax>=0.3.27",
     "pydantic-settings>=2.7",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14",
+    # SQLite is the local and test backend. Postgres (asyncpg) arrives with the
+    # deployment in phase 6; nothing here is SQLite-specific by design.
+    "aiosqlite>=0.20",
 ]
 
 [project.scripts]
@@ -33,6 +38,10 @@ build-backend = "uv_build"
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# Migration bodies are Alembic's output, not hand-written code. Reformatting them makes
+# the next `--autogenerate` diff noisy for no gain, and a migration is reviewed against
+# the DDL it produces rather than its line width. `alembic/env.py` is ours and is linted.
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = [
@@ -44,6 +53,11 @@ select = [
     "ASYNC",# flake8-async: catches blocking calls inside async functions
     "RUF",
 ]
+
+[tool.ruff.lint.isort]
+# There is an `alembic/` directory at the repo root, so ruff infers the installed
+# `alembic` package is first-party and sorts its imports with ours.
+known-third-party = ["alembic"]
 
 [tool.pytest.ini_options]
 # Lets async test functions run without decorating every single one.
