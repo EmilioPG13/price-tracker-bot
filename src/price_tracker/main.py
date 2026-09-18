@@ -15,14 +15,18 @@ logger = logging.getLogger(__name__)
 # User-facing copy is Spanish: the target stores and users are Mexican.
 WELCOME = (
     "Hola. Soy un bot que vigila precios.\n\n"
-    "Todavia estoy en construccion: por ahora solo se saludar.\n"
-    "Pronto vas a poder mandarme el link de un producto y avisarte cuando baje."
+    "Todavía estoy en construcción: por ahora solo sé saludar.\n"
+    "Pronto vas a poder mandarme el link de un producto y te aviso cuando baje."
 )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
+    # Logged so that "does /start actually reply?" can be answered from the log rather
+    # than by a person watching a phone. It went unverified across three sessions for
+    # exactly the want of this line.
+    logger.info("/start from chat %s", update.effective_chat.id if update.effective_chat else "?")
     await update.message.reply_text(WELCOME)
 
 
