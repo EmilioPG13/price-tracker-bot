@@ -17,9 +17,6 @@ __pycache__/
 *.db
 *.sqlite3
 
-# Spike output (measurements are committed to docs/, raw runs are not)
-spike-results/
-
 # OS / editor
 .DS_Store
 .idea/

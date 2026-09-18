@@ -1,28 +1,28 @@
 # Candidate stores for the MVP.
 #
-# Fill `url` with ONE real, in-stock product page per store you care about. Pick a
-# boring, long-lived product (an appliance, a tool), not a limited-time deal that
-# will 404 next week and make the measurement look like a block.
+# One real, in-stock product page per store. These are deliberately boring catalogue
+# items (a blender, a SATA SSD) rather than deals: a promotion that expires 404s and
+# looks identical to a block, which would poison the measurement.
 #
-# Leave `url` empty to skip a store. Nothing here is committed to a store choice;
-# the measurement decides.
+# Leave `url` empty to skip a store. Nothing here commits us to a store; the
+# measurement in docs/store-viability.md decides.
 
 [[store]]
 name = "mercadolibre"
-url = ""
+url = "https://articulo.mercadolibre.com.mx/MLM-656960312-licuadora-oster-16-velocidades-vaso-de-vidrio-l6817-_JM"
 
 [[store]]
 name = "amazon-mx"
-url = ""
+url = "https://www.amazon.com.mx/Licuadora-cl%C3%A1sica-Oster-velocidades-BLST4127013/dp/B08V5PD4F4"
 
 [[store]]
 name = "liverpool"
-url = ""
+url = "https://www.liverpool.com.mx/tienda/pdp/licuadora-oster-2110245-2-velocidades/1141535451"
 
 [[store]]
 name = "cyberpuerta"
-url = ""
+url = "https://www.cyberpuerta.mx/Computo-Hardware/Discos-Duros-SSD-NAS/SSD/SSD-Kingston-A400-240GB-SATA-III-2-5-7mm.html"
 
 [[store]]
 name = "walmart-mx"
-url = ""
+url = "https://www.walmart.com.mx/ip/licuadora-oster-16-velocidades-6859013000/00034264420304"

@@ -5,12 +5,19 @@
 # answers here, a free cloud cron can check it. If it 403s here but works from a
 # laptop, that store needs a residential IP and the bot has to run on one.
 #
-# Manual trigger only. This makes real requests to real stores; it should not fire
-# on every push.
+# Triggers on a change to the target list, because a new target is exactly when the
+# measurement is stale. Not on every push: this makes real requests to real stores.
 name: store-spike
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "spike/targets.toml"
+      - ".github/workflows/store-spike.yml"
+
+permissions:
+  contents: write
 
 jobs:
   spike:
@@ -28,10 +35,16 @@ jobs:
         run: |
           uv run python scripts/store_spike.py \
             --label "github-actions $(date -u +%Y-%m-%d)" \
-            --out spike-results/github-actions.json \
+            --out docs/spike-runs/github-actions.json \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: spike-results
-          path: spike-results/
+      # The measurement is the deliverable, so it is committed rather than left in a
+      # log that expires. Only docs/spike-runs/ is touched, so this cannot retrigger
+      # the path filter above.
+      - name: Record the run
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/spike-runs/github-actions.json
+          git diff --staged --quiet || git commit -m "chore: record store spike from a datacenter IP"
+          git push

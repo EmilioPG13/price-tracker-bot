@@ -23,11 +23,13 @@ of work depend on the answer.
 
 ```bash
 # Residential network (your machine)
-uv run python scripts/store_spike.py --label home --out spike-results/home.json
-
-# Datacenter network (free, unlimited on a public repo)
-gh workflow run store-spike.yml
+uv run python scripts/store_spike.py --label home --out docs/spike-runs/home.json
 ```
+
+The datacenter run happens in CI: editing `spike/targets.toml` triggers
+`.github/workflows/store-spike.yml`, which probes the same targets from an Actions
+runner and commits `docs/spike-runs/github-actions.json` back. Raw JSON for both runs
+lives in `docs/spike-runs/`.
 
 If every store is blocked from Actions, take a second free datacenter reading from
 Google Colab before concluding: Azure ranges are more heavily blocklisted than an
@@ -35,15 +37,26 @@ average VPS, so Actions is the pessimistic measurement, not the representative o
 
 ## Results
 
-> Not yet measured. Fill in from the two runs above.
+### From home (residential IP) — 2026-09-17
 
-### From home (residential IP)
+Egress: `138.186.31.124` (AS17072 Total Play Telecomunicaciones)
 
-<!-- paste the spike's markdown table here -->
+| Store | Verdict | HTTP | robots | JSON-LD Product | Price read | ms |
+|---|---|---|---|---|---|---|
+| mercadolibre | SERVED, no price | 200 | allows | no | — | 344 |
+| amazon-mx | OK (price read) | 200 | allows | yes | 1295 MXN | 1516 |
+| liverpool | SERVED, no price | 200 | allows | no | — | 1483 |
+| cyberpuerta | OK (price read) | 200 | allows | yes | 879 MXN | 1064 |
+| walmart-mx | OK (price read) | 200 | allows | yes | 1252.53 MXN | 860 |
+
+Every store answered and every one allows the path in `robots.txt`. Three expose a
+`schema.org/Product` with a price. Mercado Libre and Liverpool serve a `200` but no
+JSON-LD Product, so they would need CSS selectors — a more brittle contract, and a
+cost to weigh against how much either store is actually wanted.
 
 ### From GitHub Actions (datacenter IP)
 
-<!-- paste the spike's markdown table here -->
+> Pending: triggered by the commit that added these targets.
 
 ## Decision
 
