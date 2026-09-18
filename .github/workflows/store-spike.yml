@@ -43,8 +43,8 @@ jobs:
       # the path filter above.
       - name: Record the run
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "Emilio Parra"
+          git config user.email "emilio.pg95@gmail.com"
           git add docs/spike-runs/github-actions.json
           git diff --staged --quiet || git commit -m "chore: record store spike from a datacenter IP"
           git push
