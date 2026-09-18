@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Truthful identification. We are not pretending to be a browser: if a store wants to
 # refuse this bot, it should be able to, and a human should be able to find us.
-USER_AGENT = "price-tracker-bot/0.1 (+https://github.com/emiliopg/price-tracker-bot; spike)"
+USER_AGENT = "price-tracker-bot/0.1 (+https://github.com/EmilioPG13/price-tracker-bot; spike)"
 
 TIMEOUT = httpx.Timeout(20.0)
 PAUSE_RANGE = (2.0, 4.0)  # seconds between stores
