@@ -191,6 +191,47 @@ async def public_ip_info(client: httpx.AsyncClient) -> str:
     return "unknown"
 
 
+def render_comparison(baseline: dict, other: dict) -> str:
+    """Diff two runs.
+
+    This exists because a status code lies. A store that refuses a datacenter IP may
+    answer `200` with a challenge page instead of a `403`, and the only cheap tell is
+    that the body collapses — Walmart served 279 KB residentially and 13 KB from CI,
+    both "successfully". Comparing two runs is therefore part of the measurement, not
+    an afterthought.
+    """
+    a = {r["name"]: r for r in baseline["results"]}
+    b = {r["name"]: r for r in other["results"]}
+
+    lines = [
+        f"### Comparison: `{baseline['label']}` vs `{other['label']}`",
+        "",
+        f"- Baseline egress: {baseline['egress']}",
+        f"- Other egress: {other['egress']}",
+        "",
+        "| Store | Baseline bytes | Other bytes | Ratio | JSON-LD | Reading |",
+        "|---|---|---|---|---|---|",
+    ]
+    for name in a:
+        if name not in b:
+            continue
+        ab, bb = a[name]["bytes_received"] or 0, b[name]["bytes_received"] or 0
+        ratio = (bb / ab) if ab else 0.0
+        ld = f"{a[name]['has_jsonld_product']} -> {b[name]['has_jsonld_product']}"
+
+        if ratio < 0.5:
+            reading = "**body collapsed — served a challenge, not the product**"
+        elif a[name]["has_jsonld_product"] and not b[name]["has_jsonld_product"]:
+            reading = "**same page, structured data withheld**"
+        elif b[name]["parsed_price"]:
+            reading = "identical treatment, price readable"
+        else:
+            reading = "identical treatment, price not in server HTML"
+
+        lines.append(f"| {name} | {ab:,} | {bb:,} | {ratio:.2f}x | {ld} | {reading} |")
+    return "\n".join(lines)
+
+
 def render_markdown(label: str, ip_info: str, results: list[StoreResult]) -> str:
     lines = [
         f"### Spike run: `{label}`",
@@ -224,7 +265,19 @@ async def main() -> int:
     ap.add_argument("--targets", type=Path, default=REPO_ROOT / "spike" / "targets.toml")
     ap.add_argument("--label", default="local", help="Name this run, e.g. home / github-actions")
     ap.add_argument("--out", type=Path, default=None, help="Optional JSON output path")
+    ap.add_argument(
+        "--compare",
+        nargs=2,
+        type=Path,
+        metavar=("BASELINE", "OTHER"),
+        help="Diff two saved runs instead of probing. Reveals blocks that answered 200.",
+    )
     args = ap.parse_args()
+
+    if args.compare:
+        baseline, other = (json.loads(p.read_text(encoding="utf-8")) for p in args.compare)
+        print(render_comparison(baseline, other))
+        return 0
 
     if not args.targets.exists():
         print(f"targets file not found: {args.targets}", file=sys.stderr)

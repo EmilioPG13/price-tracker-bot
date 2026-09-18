@@ -3,7 +3,12 @@
 Telegram bot that tracks product prices in online stores, keeps their history, and
 alerts you when a price drops below your target.
 
-> **Status: phase 0.** Scaffold and store-viability spike. No tracking yet.
+> **Status: phase 0 done.** Scaffold and store-viability spike measured. No tracking yet.
+>
+> Stores chosen by measurement: **Cyberpuerta** (phase 1) and **Liverpool** (phase 5).
+> Walmart blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not
+> put prices in its server HTML. Full evidence and reasoning in
+> [`docs/store-viability.md`](docs/store-viability.md).
 
 ## Why the spike comes first
 

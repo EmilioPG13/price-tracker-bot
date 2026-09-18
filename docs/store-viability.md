@@ -54,30 +54,55 @@ Every store answered and every one allows the path in `robots.txt`. Three expose
 JSON-LD Product, so they would need CSS selectors — a more brittle contract, and a
 cost to weigh against how much either store is actually wanted.
 
-### From GitHub Actions (datacenter IP)
+### From GitHub Actions (datacenter IP) — 2026-09-18
 
-> Pending: triggered by the commit that added these targets.
+Egress: `64.236.145.86` (AS8075 Microsoft Corporation)
+
+**Every store returned `200`.** Taken alone that reads as "nothing blocks us", and it
+is wrong. See the comparison below.
+
+### Comparison — the measurement that actually decided
+
+`uv run python scripts/store_spike.py --compare docs/spike-runs/home.json docs/spike-runs/github-actions.json`
+
+| Store | Home bytes | Actions bytes | Ratio | JSON-LD | Reading |
+|---|---|---|---|---|---|
+| mercadolibre | 22,824 | 22,824 | 1.00x | no → no | Identical treatment, price not in server HTML |
+| amazon-mx | 1,015,482 | 1,036,734 | 1.02x | **yes → no** | Same page, structured data withheld |
+| liverpool | 1,083,470 | 1,083,469 | 1.00x | no → no | Identical treatment, price not in server HTML |
+| cyberpuerta | 247,996 | 247,996 | 1.00x | yes → yes | Identical treatment, price readable |
+| walmart-mx | 278,961 | **13,599** | **0.05x** | yes → no | Body collapsed — a challenge page wearing a `200` |
+
+**The finding worth keeping: a status code lies.** Walmart does not answer a
+datacenter IP with `403`; it answers `200` and 13 KB of anti-bot interstitial. A spike
+that only compared status codes would have cleared all five stores and been wrong
+about two of them. Body size across two networks is the cheap tell, which is why
+`--compare` is now part of the tool rather than a one-off shell command.
 
 ## Decision
 
-> Pending measurement.
+| Store | Verdict | Why |
+|---|---|---|
+| **cyberpuerta** | **Store #1** | Byte-identical from both networks, clean `schema.org/Product`, price read. No friction anywhere. |
+| **liverpool** | **Store #2** | Not blocked — treated identically from both networks — but the price is not in JSON-LD. Needs a different parser. |
+| amazon-mx | **Out** | Conditions of Use prohibit "data mining, robots, or similar data gathering and extraction tools" without written consent. Out on terms, independent of the measurement — and it withheld its structured data from CI anyway. |
+| walmart-mx | **Out** | Blocked from datacenter IPs behind a fake `200`. Would only work on a residential IP. |
+| mercadolibre | **Deferred** | Not blocked, but 22 KB either way: the price is not in the server HTML at all. Would need the official API, which requires a registered OAuth application. Revisit only if the MVP ships early. |
 
-| Store | Home | Actions | Verdict |
-|---|---|---|---|
-| | | | |
+**Where the bot runs:** a free datacenter host is viable, because the two chosen
+stores are indifferent to the network. The phase-6 fallback of running on a home
+machine is not needed.
 
-**Store #1 (phase 1):** TBD
-**Store #2 (phase 5):** TBD
-**Where the bot runs (phase 6):** TBD
+Liverpool being the second store is a better outcome than a second JSON-LD store
+would have been. It forces a genuinely different `Parser` against the same `Fetcher`,
+which is the real test of the phase-1 split — a second store that also shipped clean
+JSON-LD would have proved nothing.
 
-Decision rule agreed up front, so the data is not argued with after the fact:
+### `robots.txt`
 
-| Observed | Conclusion |
-|---|---|
-| Answers from Actions | Strong candidate. Price checks can run on a free cloud cron. |
-| Answers at home, `403` from Actions | Only viable on a residential IP. If no store clears Actions, the free deployment is a machine at home. |
-| `403` from both | Out of the MVP. Documented in the README as an honest limitation. |
-| `robots.txt` disallows the path | Out, regardless of whether a request would have succeeded. |
+All five stores allow the probed path. No store was excluded on `robots.txt` grounds;
+Amazon was excluded on its Conditions of Use, which is a separate permission that
+`robots.txt` says nothing about.
 
 ## Rules that do not bend
 
