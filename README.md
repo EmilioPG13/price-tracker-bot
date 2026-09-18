@@ -3,9 +3,10 @@
 Telegram bot that tracks product prices in online stores, keeps their history, and
 alerts you when a price drops below your target.
 
-> **Status: phase 0 done.** Scaffold and store-viability spike measured. No tracking yet.
+> **Status: phase 1 done.** The scraper reads a name and price from a Cyberpuerta
+> product page. No database and no bot commands yet.
 >
-> Stores chosen by measurement: **Cyberpuerta** (phase 1) and **Liverpool** (phase 5).
+> Stores chosen by measurement: **Cyberpuerta** (done) and **Liverpool** (phase 5).
 > Walmart blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not
 > put prices in its server HTML. Full evidence and reasoning in
 > [`docs/store-viability.md`](docs/store-viability.md).
@@ -25,6 +26,18 @@ measures each candidate store from two networks: a residential one and a GitHub
 Actions runner (a datacenter IP, free and unlimited on a public repo). The results
 in [`docs/store-viability.md`](docs/store-viability.md) decide which stores make the
 MVP and where the bot can run.
+
+## The scraper
+
+`Fetcher` (how bytes arrive) and `Parser` (how bytes become a product) are separate, so
+a store changing its HTML and a store blocking our requests are two different repairs.
+Parsing is synchronous and I/O-free, which is why the whole suite runs offline against
+real pages saved in [`tests/fixtures/`](tests/fixtures/).
+
+Two decisions are worth reading before the code, both made against the obvious option
+and both settled by looking at real pages — a product's identity is not in its URL, and
+a store's `sku` is not the store's id for it:
+[`docs/scraper-design.md`](docs/scraper-design.md).
 
 ## Running it
 

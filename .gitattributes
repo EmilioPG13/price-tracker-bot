@@ -4,5 +4,5 @@
 * text=auto eol=lf
 
 # Saved store pages are evidence; byte-for-byte or they are not fixtures.
-tests/fixtures/** -text
+tests/fixtures/*.html -text
 *.png binary
