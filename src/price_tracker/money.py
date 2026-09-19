@@ -58,3 +58,22 @@ def to_cents(raw: str | int | float | Decimal) -> int:
         raise ValueError(f"price has sub-cent precision: {raw!r}")
 
     return int(cents)
+
+
+def format_cents(cents: int, currency: str = "MXN") -> str:
+    """Render integer cents the way a person reads a price. The way back out.
+
+    Integer arithmetic only, and for the same reason the way in goes through `Decimal`:
+    `cents / 100` is float division, so the one place in the codebase that exists to
+    keep floats away from money would be reintroducing one on the last line.
+
+    `divmod` also keeps the two halves exact for a negative amount, which a price should
+    never be — but this formats whatever it is handed, and a `-$0.01` is a far better
+    thing to see in a message than a silently rounded zero.
+    """
+    if isinstance(cents, bool) or not isinstance(cents, int):
+        raise TypeError(f"cents must be int cents, got {type(cents).__name__}")
+
+    sign = "-" if cents < 0 else ""
+    major, minor = divmod(abs(cents), 100)
+    return f"{sign}${major:,}.{minor:02d} {currency}"
