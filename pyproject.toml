@@ -18,6 +18,9 @@ dependencies = [
     # SQLite is the local and test backend. Postgres (asyncpg) arrives with the
     # deployment in phase 6; nothing here is SQLite-specific by design.
     "aiosqlite>=0.20",
+    # Charts. Used through Figure + FigureCanvasAgg only, never pyplot — see
+    # bot/charts.py for why that distinction is load-bearing for a concurrent bot.
+    "matplotlib>=3.10",
 ]
 
 [project.scripts]

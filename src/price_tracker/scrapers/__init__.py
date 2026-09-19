@@ -17,6 +17,7 @@ from price_tracker.scrapers.errors import (
     ProductUnavailableError,
     ScraperError,
     StoreRefusedError,
+    StoreUnavailableError,
     UnsupportedUrlError,
 )
 from price_tracker.scrapers.http import HttpFetcher, RobotsDisallowedError
@@ -71,6 +72,7 @@ __all__ = [
     "RobotsDisallowedError",
     "ScraperError",
     "StoreRefusedError",
+    "StoreUnavailableError",
     "UnsupportedUrlError",
     "extract_jsonld_product",
     "fetch_product",

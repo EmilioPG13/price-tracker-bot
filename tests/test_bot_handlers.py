@@ -9,14 +9,17 @@ rather than rejected.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
+from price_tracker.bot import copy, jobs
 from price_tracker.bot.handlers import MESSAGE_LIMIT, split_message
 from price_tracker.bot.runtime import RESOURCES_KEY, Resources, resources_of
 from price_tracker.config import Settings
 from price_tracker.main import build_application
 
-EXPECTED_COMMANDS = {"start", "help", "add", "list", "remove"}
+EXPECTED_COMMANDS = {"start", "help", "add", "list", "chart", "remove"}
 
 
 @pytest.fixture
@@ -37,6 +40,40 @@ def test_every_command_is_registered(application):
     }
 
     assert registered == EXPECTED_COMMANDS
+
+
+def test_the_command_menu_matches_the_handler_table(application):
+    """The menu Telegram shows and the commands that exist must be the same set.
+
+    These are written in two files — `copy.COMMAND_MENU` and the table in `main.py` —
+    and nothing connects them, so they drift the moment a command is added to one and
+    forgotten in the other. The drift is invisible from the code and shows up as a menu
+    entry that does nothing, or a working command nobody can discover.
+
+    `/start` is the exception: it is what Telegram sends before there is a menu to read.
+    """
+    registered = {
+        command
+        for handler in application.handlers[0]
+        for command in getattr(handler, "commands", ())
+    }
+    advertised = {command for command, _description in copy.COMMAND_MENU}
+
+    assert advertised == registered - {"start"}
+
+
+def test_the_price_check_is_scheduled(application):
+    """A bot that answers commands and never alerts anyone is phase 3 with extra files.
+
+    Registered at build time rather than in `post_init`, so it can be asserted without
+    opening anything — the same reason `build_application` is separate from `run`.
+    """
+    scheduled = application.job_queue.get_jobs_by_name(jobs.JOB_NAME)
+
+    assert len(scheduled) == 1
+    interval, limit = scheduled[0].data
+    assert interval == timedelta(hours=6)
+    assert limit == 25
 
 
 def test_the_update_log_runs_before_the_handlers(application):

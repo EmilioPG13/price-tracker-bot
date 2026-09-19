@@ -6,11 +6,12 @@ from `run` so the handler table can be asserted in a test without opening a sock
 """
 
 import logging
+from datetime import timedelta
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, TypeHandler
 
-from price_tracker.bot import handlers, runtime
+from price_tracker.bot import handlers, jobs, runtime
 from price_tracker.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -40,9 +41,20 @@ def build_application(settings: Settings) -> Application:
     application.add_handler(CommandHandler("help", handlers.help_command))
     application.add_handler(CommandHandler("add", handlers.add))
     application.add_handler(CommandHandler("list", handlers.show_list))
+    application.add_handler(CommandHandler("chart", handlers.chart))
     application.add_handler(CommandHandler("remove", handlers.remove))
 
     application.add_error_handler(handlers.on_error)
+
+    # The second runtime. It is scheduled here, beside the handler table, because that
+    # table and this job are the same kind of thing — two doors into one service layer —
+    # and a reader looking for "what can make this bot do something" should find both in
+    # one place. Registering the job opens nothing; `post_init` still owns that.
+    jobs.schedule(
+        application,
+        interval=timedelta(hours=settings.check_interval_hours),
+        limit=settings.check_batch_limit,
+    )
     return application
 
 

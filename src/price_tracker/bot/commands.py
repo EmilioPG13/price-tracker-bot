@@ -23,14 +23,38 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import timedelta
 
-from price_tracker.bot import copy
+from price_tracker.bot import charts, copy
 from price_tracker.bot.runtime import Resources
-from price_tracker.db import Repository, session_scope
+from price_tracker.db import Repository, session_scope, utc_now
 from price_tracker.money import to_cents
 from price_tracker.scrapers import LayoutChangedError, ScraperError, fetch_product
 
 logger = logging.getLogger(__name__)
+
+#: How far back `/chart` looks. Long enough to show a seasonal sale, short enough that
+#: a product tracked for a year does not render as a smear.
+CHART_WINDOW = timedelta(days=90)
+
+#: Below this a chart is worse than no chart: one reading is a dot in an empty box, and
+#: a user who just ran `/add` would get exactly that.
+MIN_CHART_POINTS = 2
+
+
+@dataclass(frozen=True, slots=True)
+class Chart:
+    """A rendered chart and the text that goes under it.
+
+    A command returns this instead of a `str` when it has a picture to send. That is the
+    only reason `handlers.py` ever branches on a return value, and it is worth the
+    branch: the alternative is `commands.py` learning how to send a photo, which is the
+    one thing this module is built not to know.
+    """
+
+    png: bytes
+    caption: str
 
 
 async def add_tracking(resources: Resources, telegram_id: int, args: Sequence[str]) -> str:
@@ -108,6 +132,69 @@ async def list_trackings(resources: Resources, telegram_id: int) -> str:
         if not trackings:
             return copy.LIST_EMPTY
         return copy.tracking_list(trackings)
+
+
+async def price_chart(resources: Resources, telegram_id: int, args: Sequence[str]) -> str | Chart:
+    """`/chart <número>` — the price history of the product at that position in `/list`.
+
+    Takes a position for the same reason `/remove` does, and resolves it the same way:
+    against a list re-read here, not against whatever the user last saw on screen.
+
+    **The drawing happens after the session closes.** Rendering a PNG is real CPU work
+    handed to a thread, and there is no reason for a transaction to be open while it
+    runs — the same instinct that keeps the store fetch out of `/add`'s session. What
+    crosses the boundary is a list of plain values, not rows.
+    """
+    if len(args) != 1:
+        return copy.CHART_USAGE
+    try:
+        position = int(args[0])
+    except ValueError:
+        return copy.CHART_USAGE
+
+    async with session_scope(resources.sessions) as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(telegram_id)
+        trackings = await repo.list_trackings(user)
+        if not 1 <= position <= len(trackings):
+            return copy.CHART_NOT_FOUND
+
+        tracking = trackings[position - 1]
+        product = tracking.product
+        history = await repo.price_history(product.id, since=utc_now() - CHART_WINDOW)
+
+        points = [
+            charts.PricePoint(
+                checked_at=entry.checked_at,
+                price_cents=entry.price_cents,
+                in_stock=entry.in_stock,
+            )
+            for entry in history
+        ]
+        name = product.name
+        currency = product.currency
+        target_cents = tracking.target_price_cents
+
+    if len(points) < MIN_CHART_POINTS:
+        return copy.CHART_NOT_ENOUGH
+
+    png = await charts.render_price_chart(
+        points, name=name, currency=currency, target_cents=target_cents
+    )
+    prices = [point.price_cents for point in points]
+    logger.info("charted product_id=%s for telegram_id=%s", product.id, telegram_id)
+    return Chart(
+        png=png,
+        caption=copy.chart_caption(
+            name=name,
+            current_cents=prices[-1],
+            low_cents=min(prices),
+            high_cents=max(prices),
+            target_cents=target_cents,
+            currency=currency,
+            observations=len(points),
+        ),
+    )
 
 
 async def remove_tracking(resources: Resources, telegram_id: int, args: Sequence[str]) -> str:

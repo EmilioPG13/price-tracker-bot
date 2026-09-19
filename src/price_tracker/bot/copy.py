@@ -38,6 +38,7 @@ from price_tracker.scrapers import (
     RobotsDisallowedError,
     ScraperError,
     StoreRefusedError,
+    StoreUnavailableError,
     UnsupportedUrlError,
 )
 
@@ -65,8 +66,11 @@ HELP = (
     "Esto es lo que sé hacer:\n\n"
     "/add <link> <precio> — sigo ese producto y te aviso cuando baje al precio que pidas\n"
     "/list — te muestro lo que estoy siguiendo\n"
+    "/chart <número> — te mando la gráfica de precios del que tenga ese número\n"
     "/remove <número> — dejo de seguir el que tenga ese número en /list\n\n"
     f"Por ahora solo leo links de {STORES}.\n\n"
+    "Reviso los precios solo, cada pocas horas. No tienes que preguntarme: si algo baja "
+    "a tu objetivo, yo te escribo.\n\n"
     "Por ejemplo:\n"
     f"/add {EXAMPLE_URL} 800"
 )
@@ -78,6 +82,7 @@ WELCOME = f"Hola. Vigilo precios de tiendas en línea y te aviso cuando bajan.\n
 COMMAND_MENU: tuple[tuple[str, str], ...] = (
     ("add", "Seguir un producto: /add <link> <precio>"),
     ("list", "Ver lo que estoy siguiendo"),
+    ("chart", "Ver la gráfica: /chart <número>"),
     ("remove", "Dejar de seguir: /remove <número>"),
     ("help", "Cómo usarme"),
 )
@@ -102,6 +107,18 @@ LIST_HEADER = "Esto es lo que sigo. El número de la izquierda es el que usa /re
 REMOVE_USAGE = "Dime cuál. Se usa /remove <número>, con el número que aparece en /list."
 
 REMOVE_NOT_FOUND = "No tengo nada con ese número. Mira /list para ver lo que sigues."
+
+CHART_USAGE = "Dime cuál. Se usa /chart <número>, con el número que aparece en /list."
+
+CHART_NOT_FOUND = "No tengo nada con ese número. Mira /list para ver lo que sigues."
+
+# Two readings is the floor for a chart, not a stylistic preference: one point draws a
+# dot in an empty box, and a user who just used /add would get exactly that and conclude
+# the feature is broken. Saying why is better than drawing nothing.
+CHART_NOT_ENOUGH = (
+    "Todavía no tengo suficiente historial de ese producto para dibujar algo útil.\n\n"
+    "Reviso los precios cada pocas horas; vuelve a pedírmelo mañana."
+)
 
 UNEXPECTED = "Algo se rompió de mi lado. Ya quedó registrado; inténtalo otra vez en un rato."
 
@@ -176,6 +193,76 @@ def removed(name: str) -> str:
     return f"Listo, ya no sigo:\n{name}"
 
 
+def price_alert(data: ProductData, target_cents: int, previous_cents: int | None) -> str:
+    """The message the checker sends when a price crosses someone's target.
+
+    This is the only message in the bot nobody asked for — it arrives unprompted, hours
+    after the command that set it up — so it carries enough to act on without anyone
+    having to go and look: what it is, what it costs now, what it cost before, what was
+    asked for, and the link to go buy it.
+
+    **The headline is not always "bajó".** The alert rule fires on any reading at or
+    under target that beats the last one announced, and the first such reading may have
+    no previous price to compare against — a product whose target was just lowered, for
+    instance. Claiming a drop there would be inventing a fall nobody observed, so the
+    sentence follows the evidence rather than the other way round.
+    """
+    if previous_cents is not None and previous_cents > data.price_cents:
+        headline = "🎉 ¡Bajó de precio!"
+        before = f"Antes: {format_cents(previous_cents, data.currency)}"
+    else:
+        headline = "🎉 Está en el precio que pediste."
+        before = None
+
+    lines = [
+        headline,
+        "",
+        data.name,
+        f"Ahora: {format_cents(data.price_cents, data.currency)}",
+    ]
+    if before is not None:
+        lines.append(before)
+    lines.append(f"Tu objetivo: {format_cents(target_cents, data.currency)}")
+    lines.append(data.canonical_url)
+
+    if not data.in_stock:
+        # Worth its own line rather than a footnote. A price alert for something that
+        # cannot be bought is still useful information, but only if it says so — nobody
+        # should open the link expecting to check out.
+        lines += ["", "Ojo: la tienda lo tiene agotado en este momento."]
+    return "\n".join(lines)
+
+
+def chart_caption(
+    *,
+    name: str,
+    current_cents: int,
+    low_cents: int,
+    high_cents: int,
+    target_cents: int,
+    currency: str,
+    observations: int,
+) -> str:
+    """The text under the chart image.
+
+    Telegram caps a caption at 1024 characters and silently refuses a longer one, so
+    this stays deliberately short. It carries the numbers that are hard to read off a
+    plot precisely — the low, the high, where it stands now — and leaves the shape of
+    the line to the picture.
+    """
+    return "\n".join(
+        [
+            name,
+            "",
+            f"Ahora: {format_cents(current_cents, currency)}"
+            f" · objetivo: {format_cents(target_cents, currency)}",
+            f"Mínimo: {format_cents(low_cents, currency)}"
+            f" · máximo: {format_cents(high_cents, currency)}",
+            f"{observations} lecturas",
+        ]
+    )
+
+
 # Which failure gets which reply. Each one tells the user what they can do about it,
 # which is the whole reason `scrapers.errors` is six types and not one exception
 # carrying a string.
@@ -191,6 +278,10 @@ _ERROR_REPLIES: dict[type[ScraperError], str] = {
         "que este bot respeta."
     ),
     StoreRefusedError: "La tienda rechazó la petición. Puede ser pasajero; inténtalo más tarde.",
+    StoreUnavailableError: (
+        "La tienda está fallando en este momento y no es cosa tuya. Ya lo reintenté un "
+        "par de veces; inténtalo otra vez en un rato."
+    ),
     PageGoneError: "Esa página ya no existe. ¿Seguro que el link sigue vivo?",
     FetchTimeoutError: "La tienda tardó demasiado en contestar. Inténtalo otra vez en un rato.",
     FetchError: "No pude conectarme con la tienda. Inténtalo otra vez en un rato.",

@@ -3,10 +3,10 @@
 Telegram bot that tracks product prices in online stores, keeps their history, and
 alerts you when a price drops below your target.
 
-> **Status: phase 3 done.** The bot answers `/add`, `/list` and `/remove`: paste a
-> product link and a target price, and it reads the page, stores the product and starts
-> keeping its history. Nothing is scheduled yet — prices are read when you ask. The
-> checker and the alerts are phase 4.
+> **Status: phase 4 done.** Paste a product link and a target price, and the bot reads
+> the page, keeps the product's history, re-checks it on a schedule and messages you
+> when the price crosses your target. `/chart` draws what it has seen. Deployment is
+> phase 6; for now it runs where you run it.
 >
 > Stores chosen by measurement: **Cyberpuerta** (done) and **Liverpool** (phase 5).
 > Walmart blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not
@@ -58,20 +58,27 @@ forgets — re-arming after the price recovers — cannot be omitted by a caller
 ```
 /add <link> <precio>    track a product, and say what price is worth hearing about
 /list                   what you track, numbered
+/chart <número>         the price history of the one with that number, as a picture
 /remove <número>        stop tracking the one with that number
 ```
 
-A command returns text and imports no `telegram`; the PTB handlers are four-line
-adapters around it. That keeps the commands testable offline — the suite exercises the
-real parser, the real repository and the real alert rule without constructing a single
-`Update` — and it is the same seam the phase 4 checker will come through, since it has
-no chat to reply to.
+Plus the half you do not type: every few hours the bot re-reads every product that has
+gone stale and messages whoever asked to be told when one crosses their target.
 
-Each of the scraper's six error types becomes its own reply, which is what that
-hierarchy was built for. `/add` reads a live page, so it records the price and applies
-it to the alert rule: if the product is already under your target, the reply *is* the
-alert, and the checker will not repeat it later.
-[`docs/bot-commands.md`](docs/bot-commands.md).
+A command returns text and imports no `telegram`; the PTB handlers are four-line
+adapters around it. The scheduled checker comes through that same seam — it has no chat
+to reply to, so it takes a "send this to that user" callable instead. Both halves go
+through one scraper function and one repository, which is what stops the two runtimes
+growing different ideas of what recording a price means. The suite exercises the real
+parser, the real repository and the real alert rule without constructing a single
+`Update`, and replaces Telegram with a list.
+
+Each of the scraper's error types becomes its own reply, which is what that hierarchy
+was built for. `/add` reads a live page, so it records the price and applies it to the
+alert rule: if the product is already under your target, the reply *is* the alert, and
+the checker does not repeat it later.
+[`docs/bot-commands.md`](docs/bot-commands.md) and
+[`docs/price-checker.md`](docs/price-checker.md).
 
 ## Running it
 
@@ -99,6 +106,12 @@ gh workflow run store-spike.yml
 ## Scraping conduct
 
 One request per product page, pauses between stores, a `User-Agent` that names this
-project and links to it, and `robots.txt` honoured before fetching. No rotating
-proxies, no captcha solving, no browser impersonation. A store that blocks this bot
-gets dropped from the MVP and written down in `docs/store-viability.md`.
+project and links to it, and `robots.txt` honoured before fetching. The only failure
+retried is a 5xx — the store saying it is broken. A refusal is never retried: it is a
+finding to record, not an obstacle to work around. No rotating proxies, no captcha
+solving, no browser impersonation. A store that blocks this bot gets dropped from the
+MVP and written down in `docs/store-viability.md`.
+
+None of that is only prose. `HttpFetcher` has no way to send a browser string, a test
+asserts a `robots.txt` disallow means the product request is never made, and another
+counts the requests after a 403 to prove there was exactly one.

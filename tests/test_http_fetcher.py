@@ -19,6 +19,7 @@ from price_tracker.scrapers import (
     PageGoneError,
     RobotsDisallowedError,
     StoreRefusedError,
+    StoreUnavailableError,
 )
 from price_tracker.scrapers.http import USER_AGENT
 
@@ -125,8 +126,9 @@ async def test_a_missing_robots_file_is_not_a_ban(fetcher):
         (429, StoreRefusedError),
         (404, PageGoneError),
         (410, PageGoneError),
-        (500, FetchError),
-        (503, FetchError),
+        (500, StoreUnavailableError),
+        (503, StoreUnavailableError),
+        (418, FetchError),
     ],
 )
 @respx.mock
@@ -136,6 +138,24 @@ async def test_http_failures_keep_their_meaning(fetcher, status, expected):
 
     with pytest.raises(expected):
         await fetcher.fetch(PAGE)
+
+
+@respx.mock
+async def test_a_5xx_is_told_apart_from_every_other_failure(fetcher):
+    """The one distinction the checker's retry policy is built on.
+
+    `StoreUnavailableError` subclasses `FetchError`, so a test asserting the parent
+    passes either way — which is exactly how this could be collapsed back into a generic
+    `FetchError` without anything going red, and the retry would silently stop
+    happening. `type(...) is` rather than `isinstance` is the whole point of this test.
+    """
+    allow_all()
+    respx.get(PAGE).mock(return_value=httpx.Response(503))
+
+    with pytest.raises(FetchError) as raised:
+        await fetcher.fetch(PAGE)
+
+    assert type(raised.value) is StoreUnavailableError
 
 
 @respx.mock

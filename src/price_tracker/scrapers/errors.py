@@ -53,6 +53,18 @@ class StoreRefusedError(FetchError):
     """
 
 
+class StoreUnavailableError(FetchError):
+    """The store answered 5xx — it is broken right now rather than refusing us.
+
+    Split out from the general `FetchError` because it is the one failure the conduct
+    rules allow retrying. A 500 is the store's own fault and is usually a deploy or a
+    momentary overload, so a second request half a minute later is not pressure — it is
+    the normal way to ride one out. A connection reset, a DNS failure or a timeout gives
+    no such assurance: the problem may be on our side, and the checker's own six-hour
+    cadence is already the retry. See `bot/checker.py` for the policy itself.
+    """
+
+
 class PageGoneError(FetchError):
     """404 or 410 — the product page no longer exists.
 

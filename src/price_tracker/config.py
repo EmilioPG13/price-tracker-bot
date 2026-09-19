@@ -32,7 +32,17 @@ class Settings(DatabaseSettings):
     # Field names map to env vars case-insensitively: bot_token <- BOT_TOKEN.
     bot_token: str
     scraper_user_agent: str = "price-tracker-bot/0.1 (+https://github.com/)"
+
+    #: How stale a product has to be before the checker spends a request on it, and how
+    #: often the job runs. One number for both on purpose: they are the same question
+    #: asked from two ends, and letting them differ makes a run that fetches nothing.
     check_interval_hours: int = 6
+
+    #: The most products one pass will read. Requests to a store are spaced out, so a
+    #: long due list is minutes of deliberate waiting; stopping early leaves the oldest
+    #: handled and the rest first in line next time. Raise it when the catalogue grows
+    #: past what one pass can cover in an interval.
+    check_batch_limit: int = 25
 
 
 @lru_cache

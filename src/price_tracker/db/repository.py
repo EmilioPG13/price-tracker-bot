@@ -101,6 +101,17 @@ class Repository:
             product.consecutive_failures = 0
         return product
 
+    async def get_product(self, product_id: int) -> Product | None:
+        """One product by id, or `None` if it is no longer there.
+
+        The checker needs this because it deliberately does not hold a row across the
+        network call in the middle. It reads the due list in one transaction, closes it,
+        spends several seconds fetching a page, and then opens a second transaction to
+        record the result — so the product has to be loaded again rather than carried
+        over, and between the two it may legitimately have gone.
+        """
+        return await self.session.get(Product, product_id)
+
     async def products_due_for_check(
         self, *, interval: timedelta, limit: int | None = None, now: datetime | None = None
     ) -> Sequence[Product]:

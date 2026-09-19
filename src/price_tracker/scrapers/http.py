@@ -11,8 +11,9 @@ retry only on 5xx. Prose is not enforcement, so they live here as code:
 - requests to one host are spaced by `min_interval`, honouring a `Crawl-delay` if the
   store asks for a longer one,
 - nothing is retried here at all. A 403 answered twice is just hammering, and the
-  retry-on-5xx rule belongs to the scheduled checker in phase 4, which is the layer
-  that knows how long it may wait.
+  retry-on-5xx rule belongs to the scheduled checker in `bot/checker.py`, which is the
+  layer that knows how long it may wait. What this layer owes that one is a 5xx it can
+  *recognise*, which is why `StoreUnavailableError` is a type of its own.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from price_tracker.scrapers.errors import (
     FetchTimeoutError,
     PageGoneError,
     StoreRefusedError,
+    StoreUnavailableError,
 )
 
 # Truthful identification. A store operator who wants to refuse this bot should be able
@@ -105,6 +107,11 @@ class HttpFetcher(Fetcher):
             raise StoreRefusedError(f"store refused with HTTP {status}: {url}")
         if status in (404, 410):
             raise PageGoneError(f"page is gone (HTTP {status}): {url}")
+        # 5xx before the general case: this is the only status the checker retries, and
+        # it can only tell it apart if the type says so. Collapsing it into `FetchError`
+        # would make a store's bad minute indistinguishable from a DNS failure.
+        if status >= 500:
+            raise StoreUnavailableError(f"store is unavailable (HTTP {status}): {url}")
         if status >= 400:
             raise FetchError(f"HTTP {status} fetching {url}")
 

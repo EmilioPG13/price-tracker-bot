@@ -87,6 +87,29 @@ async def show_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(message, text)
 
 
+async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The one handler that may answer with a picture instead of a sentence.
+
+    `commands.price_chart` returns a `str` when there is nothing to draw and a `Chart`
+    when there is, so the branch is on the return type rather than on a flag. It is the
+    only place a handler inspects what a command gave back, and it stays here rather
+    than in `commands.py` because sending a photo is a Telegram concern.
+    """
+    message, telegram_id = _sender(update)
+    if message is None or telegram_id is None:
+        return
+
+    # Rendering is real work on a thread, so the chat gets the honest indicator.
+    await _show_typing(message, ChatAction.UPLOAD_PHOTO)
+    result = await commands.price_chart(
+        runtime.resources_of(context.bot_data), telegram_id, context.args or []
+    )
+    if isinstance(result, str):
+        await _reply(message, result)
+        return
+    await message.reply_photo(photo=result.png, caption=result.caption)
+
+
 async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, telegram_id = _sender(update)
     if message is None or telegram_id is None:
@@ -128,10 +151,10 @@ def _sender(update: Update) -> tuple[Message | None, int | None]:
     return update.effective_message, user.id if user else None
 
 
-async def _show_typing(message: Message) -> None:
+async def _show_typing(message: Message, action: str = ChatAction.TYPING) -> None:
     """Best effort. A failed typing indicator must not take the command down with it."""
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await message.chat.send_action(action)
     except TelegramError:
         logger.debug("could not send the typing action", exc_info=True)
 
