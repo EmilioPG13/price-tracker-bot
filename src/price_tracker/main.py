@@ -1,57 +1,52 @@
-"""Bot entry point.
+"""Bot entry point: settings in, a wired `Application` out.
 
-Phase 0 scope: prove the async stack answers on Telegram. Real commands land in phase 3.
+Everything with behaviour lives in `price_tracker.bot`; this module is the wiring, and
+it is meant to stay the shortest file in the package. `build_application` is separate
+from `run` so the handler table can be asserted in a test without opening a socket.
 """
 
 import logging
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, TypeHandler
+from telegram.ext import Application, CommandHandler, TypeHandler
 
-from price_tracker.config import get_settings
+from price_tracker.bot import handlers, runtime
+from price_tracker.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-# User-facing copy is Spanish: the target stores and users are Mexican.
-WELCOME = (
-    "Hola. Soy un bot que vigila precios.\n\n"
-    "Todavía estoy en construcción: por ahora solo sé saludar.\n"
-    "Pronto vas a poder mandarme el link de un producto y te aviso cuando baje."
-)
 
+def build_application(settings: Settings) -> Application:
+    """Assemble the bot. Opens nothing — `post_init` does that once the loop is running.
 
-async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Record every update before any handler filters it.
-
-    Registered in group -1, so it runs ahead of the real handlers and does not block
-    them. It exists because "did anything reach this bot?" and "did the `/start` handler
-    run?" are different questions, and only the first one tells you whether you are
-    typing into the right chat — which is the thing that actually went wrong the first
-    three times someone tried to verify this.
-
-    Logging inside `start()` cannot answer it: a handler that returns early on an update
-    shape it does not recognise leaves no trace at all.
+    `post_init` and `post_shutdown` are where the engine and the HTTP client are opened
+    and closed. They cannot be built here: both bind to the running event loop, and
+    `run_polling` starts that loop after this function has already returned. See
+    `bot.runtime` for what that failure looks like when it is got wrong.
     """
-    chat = update.effective_chat
-    user = update.effective_user
-    message = update.effective_message
-    logger.info(
-        "update %s | chat=%s user=@%s | %r",
-        update.update_id,
-        chat.id if chat else "?",
-        user.username if user else "?",
-        message.text if message else None,
+    application = (
+        Application.builder()
+        .token(settings.bot_token)
+        .post_init(runtime.post_init)
+        .post_shutdown(runtime.post_shutdown)
+        .build()
     )
 
+    # Group -1 runs before group 0, so this sees every update — including the ones no
+    # command below claims, which is the case it exists for.
+    application.add_handler(TypeHandler(Update, handlers.log_update), group=-1)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None:
-        return
-    await update.message.reply_text(WELCOME)
-    logger.info("replied to /start in chat %s", update.message.chat_id)
+    application.add_handler(CommandHandler("start", handlers.start))
+    application.add_handler(CommandHandler("help", handlers.help_command))
+    application.add_handler(CommandHandler("add", handlers.add))
+    application.add_handler(CommandHandler("list", handlers.show_list))
+    application.add_handler(CommandHandler("remove", handlers.remove))
+
+    application.add_error_handler(handlers.on_error)
+    return application
 
 
-def run() -> None:
+def configure_logging() -> None:
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
         level=logging.INFO,
@@ -59,17 +54,14 @@ def run() -> None:
     # httpx logs every Telegram poll at INFO, which drowns out everything else.
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    settings = get_settings()
-    app = Application.builder().token(settings.bot_token).build()
-    # Group -1 runs before group 0, so this sees everything the handlers do — and
-    # everything they do not. Phase 3 may want it at DEBUG once there are real commands
-    # producing their own log lines; while `/start` is the only one, INFO is right.
-    app.add_handler(TypeHandler(Update, log_update), group=-1)
-    app.add_handler(CommandHandler("start", start))
+
+def run() -> None:
+    configure_logging()
+    application = build_application(get_settings())
 
     logger.info("Bot starting (polling)")
     # run_polling owns the event loop; it is deliberately a sync call.
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":

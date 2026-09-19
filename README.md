@@ -3,8 +3,10 @@
 Telegram bot that tracks product prices in online stores, keeps their history, and
 alerts you when a price drops below your target.
 
-> **Status: phase 2 done.** The scraper reads a name and price from a Cyberpuerta
-> product page, and there is a schema to keep them in. No bot commands yet.
+> **Status: phase 3 done.** The bot answers `/add`, `/list` and `/remove`: paste a
+> product link and a target price, and it reads the page, stores the product and starts
+> keeping its history. Nothing is scheduled yet — prices are read when you ask. The
+> checker and the alerts are phase 4.
 >
 > Stores chosen by measurement: **Cyberpuerta** (done) and **Liverpool** (phase 5).
 > Walmart blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not
@@ -51,6 +53,26 @@ in every column, and the alert rule lives on the tracking row so the part everyo
 forgets — re-arming after the price recovers — cannot be omitted by a caller:
 [`docs/database-design.md`](docs/database-design.md).
 
+## The bot
+
+```
+/add <link> <precio>    track a product, and say what price is worth hearing about
+/list                   what you track, numbered
+/remove <número>        stop tracking the one with that number
+```
+
+A command returns text and imports no `telegram`; the PTB handlers are four-line
+adapters around it. That keeps the commands testable offline — the suite exercises the
+real parser, the real repository and the real alert rule without constructing a single
+`Update` — and it is the same seam the phase 4 checker will come through, since it has
+no chat to reply to.
+
+Each of the scraper's six error types becomes its own reply, which is what that
+hierarchy was built for. `/add` reads a live page, so it records the price and applies
+it to the alert rule: if the product is already under your target, the reply *is* the
+alert, and the checker will not repeat it later.
+[`docs/bot-commands.md`](docs/bot-commands.md).
+
 ## Running it
 
 ```bash
@@ -58,7 +80,7 @@ uv sync
 cp .env.example .env    # then fill in BOT_TOKEN from @BotFather
 
 uv run alembic upgrade head
-uv run price-tracker    # /start responds
+uv run price-tracker    # then /start in the chat
 
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
