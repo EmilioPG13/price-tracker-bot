@@ -13,7 +13,7 @@ the bug it guards against does not raise. Two concurrent `/chart` commands shari
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -152,6 +152,39 @@ def test_readings_hours_apart_are_labelled_by_hour():
 
     assert len(set(labels)) > 1, f"every tick reads the same: {labels}"
     assert any(":" in label for label in labels), f"no time of day on the axis: {labels}"
+
+
+def test_the_axis_is_drawn_in_local_time_not_utc():
+    """Found on a real chart, on a real phone, after the suite was already green.
+
+    Storing UTC is right — `db.UtcDateTime` refuses anything else, and the 12-hour
+    cooldown depends on it. *Drawing* UTC is not. These two readings are 10:43 and 18:02
+    on 19 September in Mexico City, which is where this bot's users and stores are; in
+    UTC the second one is 00:02 on the 20th, so the axis labelled a user's own afternoon
+    with tomorrow's date.
+
+    The fix is on the locator and the formatter rather than on the points, because
+    matplotlib normalises an aware datetime to UTC when it converts it to a number.
+    Converting the data first would look correct and change nothing on screen, which is
+    the version of this fix that silently does not work.
+    """
+    one_local_afternoon = [
+        charts.PricePoint(datetime(2026, 9, 19, 16, 43, tzinfo=UTC), 87900, True),
+        charts.PricePoint(datetime(2026, 9, 20, 0, 2, tzinfo=UTC), 87900, True),
+    ]
+
+    figure = charts._build_figure(
+        one_local_afternoon, name="Un SSD", currency="MXN", target_cents=50000
+    )
+    figure.canvas.draw()
+    axes = figure.axes[0]
+    ticks = [label.get_text() for label in axes.get_xticklabels() if label.get_text()]
+    offset = axes.xaxis.get_offset_text().get_text()
+
+    assert "Sep-19" in offset, f"the axis is not on the local day: {offset!r}"
+    assert "Sep-20" not in offset and not any("Sep-20" in tick for tick in ticks), (
+        f"the axis rolled over into the UTC day: {offset!r} {ticks}"
+    )
 
 
 def test_readings_months_apart_are_labelled_by_date():

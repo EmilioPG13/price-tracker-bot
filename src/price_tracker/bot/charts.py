@@ -27,10 +27,23 @@ import io
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import matplotlib.dates as mdates
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+
+#: Timestamps are stored UTC — `db.UtcDateTime` refuses anything else — and drawn local.
+#: Those are different jobs: UTC is how a timestamp survives two backends and a 12-hour
+#: cooldown, and it is the wrong thing to show a person. A user who checked a price at
+#: 18:02 and reads `Sep-20` on their own chart has been told something false about their
+#: own afternoon, which is exactly what the first live chart did.
+#:
+#: Hardcoded rather than configured, for the same reason `copy.py` is Spanish: this bot
+#: serves one market. If that stops being true, the timezone becomes a per-user column
+#: and this constant becomes its default — not a setting, because a shared host's clock
+#: has nothing to do with where a user is.
+DISPLAY_TZ = ZoneInfo("America/Mexico_City")
 
 # Enough to read on a phone, small enough that Telegram does not recompress it into mud.
 FIGURE_SIZE = (8.0, 4.5)
@@ -157,9 +170,12 @@ def _build_figure(
     # "%d %b" handles the first and renders the second as the same date repeated eight
     # times — which is what the first live chart actually looked like. `ConciseDateFormatter`
     # picks its unit from the range it is given, so hours show as hours.
-    locator = mdates.AutoDateLocator(minticks=3, maxticks=7)
+    # The timezone goes on the locator and the formatter, not on the data. Matplotlib
+    # normalises an aware datetime to UTC when it converts it to a number, so converting
+    # the points first changes nothing on screen — the tick labels are what carry a zone.
+    locator = mdates.AutoDateLocator(tz=DISPLAY_TZ, minticks=3, maxticks=7)
     axes.xaxis.set_major_locator(locator)
-    axes.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    axes.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator, tz=DISPLAY_TZ))
 
     # Headroom, so the target line is visible even when every reading sits above it —
     # which is the ordinary case for a product nobody has been alerted about yet.

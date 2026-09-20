@@ -211,6 +211,38 @@ looking at it. `_build_figure` was split out of `_draw` afterwards so the axis l
 could be asserted, since "does it say hours or dates" is a fact even though most of what
 a chart does is only judgeable by eye.
 
+### And what the second live chart got wrong
+
+The same axis, wrong a second way, found the same way — on a phone, with the suite green
+and the first fix already in. The chart was drawn in **UTC**.
+
+Timestamps are stored UTC and that is correct: `db.UtcDateTime` refuses a naive datetime
+outright, and the 12-hour alert cooldown is a comparison that has to mean one thing on
+both backends. But storing and *showing* are different jobs. A user who ran `/add` at
+17:58 and a check at 18:02 got a chart whose last reading sat under the label `Sep-20`,
+because 18:02 in Mexico City is 00:02 the next day in UTC. The bot told someone their own
+afternoon happened tomorrow.
+
+`charts.DISPLAY_TZ` is now `America/Mexico_City`, hardcoded for the same reason `copy.py`
+is Spanish: this bot serves one market. If that stops being true the timezone becomes a
+per-user column and this constant becomes its default — not a setting, because a shared
+host's clock has nothing to do with where a user is.
+
+Two details worth keeping:
+
+- **The timezone goes on the locator and the formatter, not on the data.** Matplotlib
+  normalises an aware datetime to UTC when it converts it to a number, so converting the
+  points before plotting reads like a fix, passes review, and changes nothing on screen.
+- **`zoneinfo` needs the `tzdata` package on Windows**, where `TZPATH` is empty and
+  Python ships no IANA database. It was already installed transitively through
+  APScheduler, which is exactly why it is now declared: the failure would have arrived
+  the day APScheduler stopped needing it, as a `ZoneInfoNotFoundError` at import.
+
+The pattern across both bugs is the same, and it is the phase's most useful lesson: **the
+chart is the one output in this project whose correctness a test cannot assert.** Both
+defects passed every test, raised nothing, and were obvious within a second of looking.
+Render one and look at it before believing it.
+
 ## Verified live, end to end
 
 Run against the real Cyberpuerta, on a copy of the local database, with Telegram replaced

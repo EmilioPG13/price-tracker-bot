@@ -21,6 +21,11 @@ dependencies = [
     # Charts. Used through Figure + FigureCanvasAgg only, never pyplot — see
     # bot/charts.py for why that distinction is load-bearing for a concurrent bot.
     "matplotlib>=3.10",
+    # The IANA timezone database, which Python does NOT ship on Windows: zoneinfo there
+    # has an empty TZPATH and reads this package instead, so charts.DISPLAY_TZ raises
+    # ZoneInfoNotFoundError without it. It arrives transitively today via APScheduler;
+    # depending on that would break the day APScheduler stops needing it.
+    "tzdata>=2025.1",
 ]
 
 [project.scripts]
