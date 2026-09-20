@@ -208,10 +208,14 @@ The whole chain minus Telegram was run against the real store: real fetcher, rea
 real database file, real reply text. `/add` with a tracking parameter on the URL, then
 `/list`, then `/add` again with a lower target, then a Liverpool link, then `/remove`.
 
-The Liverpool link is worth calling out: it was refused **without a request being made**.
-Phase 5 adds that store; until then the bot does not knock on its door. The message
-naming the supported stores is derived from `PARSERS` rather than written by hand, so it
-cannot go stale the week Liverpool lands.
+The Liverpool link is worth calling out: at the time it was refused **without a request
+being made**, because the store was not supported yet and the bot does not knock on the
+door of a store it cannot read.
+
+Phase 5 has since added Liverpool, and the second half of that sentence is the part that
+aged well: the message naming the supported stores is derived from `PARSERS` rather than
+written by hand, so it became "Cyberpuerta y Liverpool" on its own, in every message that
+names them, with no edit to this file's code. The same link would now be fetched.
 
 Sending `/add` from an actual phone is still owed, and it is the only part of this phase
 a test cannot close. The `TypeHandler` in group -1 stays at INFO for exactly that reason:

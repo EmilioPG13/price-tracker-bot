@@ -17,7 +17,9 @@ still clickable without any markup, which is the only formatting these messages 
 
 **The store list is derived, not written.** `PARSERS` is the only place that knows which
 stores exist. A sentence naming them by hand would be a second place, and it would be
-wrong for however long it takes someone to notice after phase 5 adds Liverpool.
+wrong for however long it takes someone to notice. That stopped being hypothetical in
+phase 5: adding Liverpool changed every "solo leo links de …" sentence to "Cyberpuerta y
+Liverpool" without this file being edited at all.
 """
 
 from __future__ import annotations
@@ -46,9 +48,10 @@ from price_tracker.scrapers import (
 def _store_names(parsers: Sequence[Parser] = PARSERS) -> str:
     """The supported stores, as a Spanish list, read off the parser table.
 
-    Takes its parsers as an argument only so the joining can be tested with more than
-    one store. There is exactly one today, so the branch that produces "Cyberpuerta y
-    Liverpool" would otherwise first run in production, in phase 5.
+    Takes its parsers as an argument so the joining can be tested with any number of
+    stores. It was written in phase 3 against a fake parser, when there was only one real
+    store and the multi-store branch could not otherwise run outside production; phase 5
+    added Liverpool and it produced "Cyberpuerta y Liverpool" correctly, first time.
     """
     names = sorted(parser.store.capitalize() for parser in parsers)
     if len(names) == 1:

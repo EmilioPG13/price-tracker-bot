@@ -10,8 +10,11 @@ Keeping them apart also keeps the parser synchronous and free of I/O, which is w
 every parser test in this repo runs against a saved file and never touches the network.
 
 Liverpool is the reason this is not speculative generality. It was chosen as store #2
-precisely because it ships no JSON-LD (`docs/store-viability.md`), so phase 5 has to
-write a genuinely different `Parser` against this same `Fetcher`.
+precisely because it ships no JSON-LD (`docs/store-viability.md`), so phase 5 had to
+write a genuinely different `Parser` against this same `Fetcher` — and did: its price
+comes out of the state its Next.js pages stream inline, which has nothing in common with
+reading a `schema.org` block. This `Fetcher` was not touched to accommodate it.
+See `docs/liverpool-parser.md`.
 """
 
 from __future__ import annotations
