@@ -45,7 +45,11 @@ KINGSTON_CENTS = 88900
 ACER_URL = "https://www.cyberpuerta.mx/SSD-Acer-GM7-1TB.html"
 ACER_ID = "494415ec3f92405919da43332b38a307"
 
-LIVERPOOL_URL = "https://www.liverpool.com.mx/tienda/pdp/algo/1141535451"
+# A store this bot does not read. Mercado Libre is deferred rather than dropped
+# (`docs/store-viability.md`: the price is not in its server HTML at all), which makes it
+# the honest example of a link a user will plausibly paste and get turned away. This
+# used to be a Liverpool URL, until phase 5 made Liverpool supported.
+UNSUPPORTED_URL = "https://articulo.mercadolibre.com.mx/MLM-656960312-licuadora-oster-_JM"
 
 # Arbitrary. A real Telegram id is a personal identifier and would prove nothing here —
 # these tests care that two ids are different, not what either one is.
@@ -232,10 +236,10 @@ async def test_a_target_of_zero_is_refused(resources):
 
 
 async def test_an_unsupported_store_is_refused_without_a_request(resources, fetcher):
-    reply = await commands.add_tracking(resources, A_USER, [LIVERPOOL_URL, "800"])
+    reply = await commands.add_tracking(resources, A_USER, [UNSUPPORTED_URL, "800"])
 
     assert reply == copy.reply_for_error(UnsupportedUrlError())
-    # Liverpool arrives in phase 5. Until then we do not even knock on its door.
+    # The conduct rule, as code: a store we cannot read is one we do not knock on.
     assert fetcher.requested == []
 
 

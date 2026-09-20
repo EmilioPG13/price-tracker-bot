@@ -9,8 +9,10 @@ are one code path, not two.
 import pytest
 
 from price_tracker.scrapers import (
+    PARSERS,
     CyberpuertaParser,
     Fetcher,
+    LiverpoolParser,
     PageContent,
     UnsupportedUrlError,
     fetch_product,
@@ -35,15 +37,33 @@ class RecordingFetcher(Fetcher):
         return PageContent(url=url, html=self.html)
 
 
+LIVERPOOL_PRODUCT = (
+    "https://www.liverpool.com.mx/tienda/pdp/licuadora-oster-2110245-2-velocidades/1141535451"
+)
+
+
 def test_a_cyberpuerta_url_routes_to_its_parser():
     assert isinstance(parser_for(PRODUCT), CyberpuertaParser)
 
 
+def test_a_liverpool_url_routes_to_its_parser():
+    # Two stores now, and the routing is the only place that knows there is more than
+    # one. Nothing downstream of `fetch_product` learns a store's name.
+    assert isinstance(parser_for(LIVERPOOL_PRODUCT), LiverpoolParser)
+
+
+def test_each_store_declines_the_others_urls():
+    # `parser_for` returns the first parser that claims a URL, so a parser whose
+    # `supports` was too generous would silently swallow the other store's links.
+    assert [p.store for p in PARSERS if p.supports(PRODUCT)] == ["cyberpuerta"]
+    assert [p.store for p in PARSERS if p.supports(LIVERPOOL_PRODUCT)] == ["liverpool"]
+
+
 def test_an_unknown_store_is_rejected_before_any_request():
-    # Liverpool joins in phase 5; until then this is the honest answer, and no request
-    # is made to a store we cannot read.
+    # Mercado Libre is deferred, not supported (`docs/store-viability.md`). This is the
+    # honest answer, and no request is made to a store we cannot read.
     with pytest.raises(UnsupportedUrlError):
-        parser_for("https://www.liverpool.com.mx/tienda/pdp/algo/1141535451")
+        parser_for("https://articulo.mercadolibre.com.mx/MLM-656960312-licuadora-oster-_JM")
 
 
 async def test_fetches_the_normalised_url_not_the_pasted_one(load_fixture):

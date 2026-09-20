@@ -6,6 +6,13 @@ where this bot runs.
 This file is evidence, not opinion. Every row comes from `scripts/store_spike.py`.
 Re-run the spike before changing a conclusion here.
 
+**What the numbers below are.** They are the record of the run that *decided* the store
+choice, dated and frozen. `docs/spike-runs/` holds the live JSON, which the CI workflow
+overwrites on every run, so its byte counts and prices drift away from this page by
+design — a store changing a price is not this document going stale. Do not "fix" a
+disagreement between the two; if a conclusion here needs revisiting, re-run the spike
+and write a new dated section.
+
 ## Why this exists
 
 A price tracker is worth nothing if the store refuses the request. Two facts make
@@ -97,6 +104,33 @@ Liverpool being the second store is a better outcome than a second JSON-LD store
 would have been. It forces a genuinely different `Parser` against the same `Fetcher`,
 which is the real test of the phase-1 split — a second store that also shipped clean
 JSON-LD would have proved nothing.
+
+### Liverpool, resolved — 2026-09-19
+
+The measurement above left one question open, and it was the one that could still have
+demoted the store: **"no JSON-LD" does not say whether the price is in an embedded
+payload or only in rendered markup.** The first is a data structure worth parsing; the
+second is CSS selectors against generated class names, and would have been grounds to
+drop Liverpool rather than ship something that broke on every redeploy.
+
+Answered by capturing two real pages: the price **is** in an embedded payload. Liverpool
+is a Next.js App Router app that streams its server state inline through
+`self.__next_f.push(...)` — no `schema.org`, no `__NEXT_DATA__`, no `application/json`
+tag, which is why the spike's probe correctly reported nothing. Roughly 523 KB of
+payload inside a 1.09 MB page.
+
+Liverpool is confirmed as store #2 and is live. Three further facts from the capture,
+none of which changes the verdict:
+
+- `robots.txt` answers `200` and contains **no `Disallow` rule at all**, for `*` or for
+  any of the ~25 agents it names individually. No `Crawl-delay` either.
+- A dead product URL returns a genuine **HTTP 404**, so `PageGoneError` already covers
+  retirement without store-specific handling.
+- The store never declares a currency for its own products. That forced the one
+  assumption in the parser, and it is documented rather than hidden.
+
+Full reasoning, including the two readings that were wrong on first pass, is in
+`docs/liverpool-parser.md`.
 
 ### `robots.txt`
 

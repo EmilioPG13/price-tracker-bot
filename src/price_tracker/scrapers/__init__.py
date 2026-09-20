@@ -22,9 +22,13 @@ from price_tracker.scrapers.errors import (
 )
 from price_tracker.scrapers.http import HttpFetcher, RobotsDisallowedError
 from price_tracker.scrapers.jsonld import JsonLdProduct, extract_jsonld_product
+from price_tracker.scrapers.liverpool import LiverpoolParser
+from price_tracker.scrapers.nextjs import json_object, rsc_payload
 
-# Ordered, and asked in order. Liverpool joins in phase 5.
-PARSERS: tuple[Parser, ...] = (CyberpuertaParser(),)
+# Ordered, and asked in order. The two stores claim disjoint hosts, so the order is not
+# load-bearing today — but `parser_for` returns the first match, so a parser added with
+# a broader claim than its neighbours belongs last.
+PARSERS: tuple[Parser, ...] = (CyberpuertaParser(), LiverpoolParser())
 
 
 def parser_for(url: str) -> Parser:
@@ -64,6 +68,7 @@ __all__ = [
     "HttpFetcher",
     "JsonLdProduct",
     "LayoutChangedError",
+    "LiverpoolParser",
     "PageContent",
     "PageGoneError",
     "Parser",
@@ -76,5 +81,7 @@ __all__ = [
     "UnsupportedUrlError",
     "extract_jsonld_product",
     "fetch_product",
+    "json_object",
     "parser_for",
+    "rsc_payload",
 ]

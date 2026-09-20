@@ -3,14 +3,14 @@
 Telegram bot that tracks product prices in online stores, keeps their history, and
 alerts you when a price drops below your target.
 
-> **Status: phase 4 done.** Paste a product link and a target price, and the bot reads
+> **Status: phase 5 done.** Paste a product link and a target price, and the bot reads
 > the page, keeps the product's history, re-checks it on a schedule and messages you
 > when the price crosses your target. `/chart` draws what it has seen. Deployment is
 > phase 6; for now it runs where you run it.
 >
-> Stores chosen by measurement: **Cyberpuerta** (done) and **Liverpool** (phase 5).
-> Walmart blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not
-> put prices in its server HTML. Full evidence and reasoning in
+> Stores chosen by measurement: **Cyberpuerta** and **Liverpool**, both live. Walmart
+> blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not put
+> prices in its server HTML. Full evidence and reasoning in
 > [`docs/store-viability.md`](docs/store-viability.md).
 
 ## Why the spike comes first
@@ -40,6 +40,12 @@ Two decisions are worth reading before the code, both made against the obvious o
 and both settled by looking at real pages — a product's identity is not in its URL, and
 a store's `sku` is not the store's id for it:
 [`docs/scraper-design.md`](docs/scraper-design.md).
+
+The second store is where that split had to pay for itself. Liverpool publishes no
+structured data at all, so it is read a completely different way — out of the state its
+Next.js pages stream inline — behind the same fetcher and the same `fetch_product` call.
+Adding it touched two new files and one line of the parser table, and nothing in the
+bot, the database or the copy: [`docs/liverpool-parser.md`](docs/liverpool-parser.md).
 
 ## Storage
 

@@ -22,9 +22,15 @@ why every parser test in this repo runs offline against a saved page, in millise
 with no mocking.
 
 This is not speculative generality, and there is a date on the proof. Liverpool was
-chosen as store #2 *because* it ships no JSON-LD, so phase 5 has to write a genuinely
+chosen as store #2 *because* it ships no JSON-LD, so phase 5 had to write a genuinely
 different parser against this same fetcher. A second JSON-LD store would have proved
 nothing about the abstraction.
+
+**It paid out on 2026-09-19.** Liverpool's price turned out to live in the state its
+Next.js pages stream inline, which has nothing in common with reading a `schema.org`
+block. The new parser and the payload reader are two new files; `HttpFetcher` was not
+touched, and neither was anything above `fetch_product`. Details, and the two readings
+that were wrong on the first pass, in [`liverpool-parser.md`](liverpool-parser.md).
 
 ## `external_id` is the store's article id, not the manufacturer's SKU
 
@@ -172,7 +178,8 @@ out of something.
 ## What phase 1 deliberately does not do
 
 - **No retry policy.** Phase 4, in the checker.
-- **No Liverpool parser.** Phase 5, and it is supposed to be harder: no JSON-LD.
+- **No Liverpool parser.** Phase 5, and it was supposed to be harder: no JSON-LD.
+  Delivered — [`liverpool-parser.md`](liverpool-parser.md).
 - **No database.** Phase 2. `ProductData` is a reading, not a row; it carries
   `store`, `external_id` and `canonical_url` because those are what the products table
   will be keyed and displayed by, and the parser is what learns them.
