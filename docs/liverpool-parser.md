@@ -272,6 +272,23 @@ https://www.liverpool.com.mx/tienda/pdp/batidora-manual-5-velocidades/1100215191
 solo leo links de Cyberpuerta y Liverpool"* — the derived sentence, correct without
 anyone editing it.
 
+### From the phone, 2026-09-22
+
+The one link the runs above could not reach was Telegram itself. Closed from a phone,
+against the running bot and the same discounted product:
+
+- `/add` answered `OSTER Batidora manual 5 velocidades`, `$668.00 MXN` — unchanged three
+  days on — with the 🎉 line, since 668 was already under the 700 target. **The name
+  rendered intact in the chat bubble**, which was the thing only this could show.
+- **No link preview on the bot's reply.** The one in the screenshot sits on the *user's*
+  outgoing message, where the Telegram client generates it; the bot's
+  `LinkPreviewOptions` still hold for a second store.
+- `/list` showed the Cyberpuerta and Liverpool trackings together, numbered.
+- `/chart 2` answered that there is not enough history yet. Correct: a product added
+  seconds earlier has exactly one reading, and two is the floor for a chart. **A Liverpool
+  chart has therefore not been seen yet**; it needs the checker to take a second reading
+  first.
+
 ### One cosmetic thing, on purpose
 
 The payload splits the name: `brand: "OSTER"`, `title: "Licuadora 2110245 2
