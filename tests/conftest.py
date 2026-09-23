@@ -4,15 +4,18 @@ Every test in this suite runs offline. The store pages under `tests/fixtures/` a
 captures, so the parser is tested against what Cyberpuerta actually served rather than
 against markup written to make the parser pass.
 
-The database fixtures below run against in-memory SQLite. That is not the production
-backend — Postgres is, from phase 6 — so anything the two disagree about is written to
-behave identically at the model layer rather than left to the engine: timestamps go
-through `UtcDateTime`, enums are VARCHAR with a CHECK, and foreign keys are switched on
-explicitly. See `docs/database-design.md`.
+The database fixtures below run against in-memory SQLite by default, and against
+Postgres — the production backend — when `TEST_DATABASE_URL` names one. CI runs the
+suite both ways. Anything the two disagree about is written to behave identically at
+the model layer rather than left to the engine: timestamps go through `UtcDateTime`,
+enums are VARCHAR with a CHECK, and foreign keys are switched on explicitly. The second
+run is what turns that from a claim into something checked. See
+`docs/database-design.md`.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from datetime import timedelta
 from pathlib import Path
@@ -21,9 +24,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.pool import StaticPool
 
+from price_tracker.config import async_database_url
 from price_tracker.db import (
+    Base,
     Repository,
-    create_all,
     create_engine,
     create_session_factory,
     utc_now,
@@ -31,6 +35,13 @@ from price_tracker.db import (
 from price_tracker.scrapers import ProductData
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+#: A Postgres database the suite may wipe. Unset, the database tests use SQLite.
+#: Every test drops and recreates every table in it, so never point this at a database
+#: whose contents matter.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or None
+if TEST_DATABASE_URL is not None:
+    TEST_DATABASE_URL = async_database_url(TEST_DATABASE_URL)
 
 
 @pytest.fixture
@@ -49,21 +60,37 @@ def load_fixture():
 
 @pytest.fixture
 async def engine() -> AsyncIterator[AsyncEngine]:
-    """A fresh, empty database per test, living only in memory.
+    """A fresh, empty database per test.
 
-    `poolclass=StaticPool` is what makes this work at all. The default pool opens a new
-    connection per checkout, and every connection to `:memory:` gets its *own* empty
-    database — so the schema is created on one connection and the test queries another,
-    which has no tables. The error that follows names a missing table and says nothing
-    about pooling, which is why this line is the first thing to check when a database
-    test fails inexplicably.
+    On SQLite it lives only in memory, and `poolclass=StaticPool` is what makes that
+    work at all. The default pool opens a new connection per checkout, and every
+    connection to `:memory:` gets its *own* empty database — so the schema is created on
+    one connection and the test queries another, which has no tables. The error that
+    follows names a missing table and says nothing about pooling, which is why this line
+    is the first thing to check when a database test fails inexplicably.
+
+    On Postgres the database outlives the test, so emptiness has to be made: every table
+    is dropped and recreated first. Dropping *before* rather than only after means a run
+    that was killed halfway cannot leave the next one starting from its rows.
     """
-    engine = create_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
-    await create_all(engine)
+    if TEST_DATABASE_URL is None:
+        engine = create_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    else:
+        engine = create_engine(TEST_DATABASE_URL)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
     try:
         yield engine
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+def postgres_url() -> str | None:
+    """The Postgres database under test, or None when the suite is running on SQLite."""
+    return TEST_DATABASE_URL
 
 
 @pytest.fixture

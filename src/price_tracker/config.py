@@ -7,7 +7,40 @@ startup with a clear message instead of surfacing as `None` somewhere deep in a 
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+
+def async_database_url(url: str) -> str:
+    """Turn a Postgres URL as a host hands it out into one the async engine can open.
+
+    Supabase's dashboard, like every Postgres host, gives a libpq-style URL:
+    `postgresql://…`, sometimes with `?sslmode=require`. Pasted as-is, each half fails
+    somewhere that does not point back at the URL:
+
+    - A scheme with no driver means SQLAlchemy's default, psycopg2 — synchronous and not
+      installed — so it fails as `ModuleNotFoundError: No module named 'psycopg2'`. And
+      `postgres://` is not a scheme SQLAlchemy accepts at all any more.
+    - SQLAlchemy passes the query string straight to `asyncpg.connect()` as keyword
+      arguments, and `sslmode` is not one: a `TypeError` from inside the first
+      connection. asyncpg calls the same setting `ssl`, with the same values.
+
+    Neither rewrite is a guess. The engine is async, so a URL naming no driver can only
+    mean asyncpg; and `sslmode` and `ssl` take the same vocabulary. A URL naming some
+    other driver is left alone, and so is anything already correct.
+    """
+    parsed = make_url(url)
+    if parsed.drivername in {"postgres", "postgresql"}:
+        parsed = parsed.set(drivername="postgresql+asyncpg")
+    if parsed.drivername == "postgresql+asyncpg" and "sslmode" in parsed.query:
+        query = dict(parsed.query)
+        query.setdefault("ssl", query.pop("sslmode"))
+        parsed = parsed.set(query=query)
+
+    if parsed == make_url(url):
+        return url
+    return parsed.render_as_string(hide_password=False)
 
 
 class DatabaseSettings(BaseSettings):
@@ -26,6 +59,11 @@ class DatabaseSettings(BaseSettings):
     )
 
     database_url: str = "sqlite+aiosqlite:///./price_tracker.db"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_an_async_driver(cls, value: str) -> str:
+        return async_database_url(value)
 
 
 class Settings(DatabaseSettings):

@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes the older run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Nothing here writes to the repository or reads a secret. The suite is offline and the
+# only database is a throwaway service container, so CI needs no credentials at all.
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  # The same suite on both backends. SQLite is what runs locally; Postgres is what runs
+  # in production. The models are written so the two cannot disagree, and this matrix is
+  # what checks that claim instead of trusting it.
+  test:
+    name: test (${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: price_tracker_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d price_tracker_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      # Empty on the SQLite leg, which makes the suite fall back to in-memory SQLite.
+      TEST_DATABASE_URL: ${{ matrix.backend == 'postgres' && 'postgresql://test:test@localhost:5432/price_tracker_test' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  # The image is what gets deployed, so it is what gets checked: it builds, it imports,
+  # and it can bring an empty Postgres up to its own schema. The URL is written the way
+  # a hosting dashboard hands it out, on purpose.
+  image:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: price_tracker
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d price_tracker"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag price-tracker-bot:ci .
+      - name: The bot's modules import inside the image
+        run: docker run --rm price-tracker-bot:ci python -c "import price_tracker.main"
+      - name: The image migrates an empty Postgres
+        run: >-
+          docker run --rm --network host
+          --env DATABASE_URL=postgresql://test:test@localhost:5432/price_tracker
+          price-tracker-bot:ci alembic upgrade head

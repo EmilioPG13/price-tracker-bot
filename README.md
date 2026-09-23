@@ -3,10 +3,11 @@
 Telegram bot that tracks product prices in online stores, keeps their history, and
 alerts you when a price drops below your target.
 
-> **Status: phase 5 done.** Paste a product link and a target price, and the bot reads
-> the page, keeps the product's history, re-checks it on a schedule and messages you
-> when the price crosses your target. `/chart` draws what it has seen. Deployment is
-> phase 6; for now it runs where you run it.
+> **Status: phase 6 in progress.** Paste a product link and a target price, and the bot
+> reads the page, keeps the product's history, re-checks it on a schedule and messages
+> you when the price crosses your target. `/chart` draws what it has seen. It runs on
+> Postgres, in Docker, with CI on both database backends; it is not deployed yet, so for
+> now it runs where you run it. See [`docs/deployment.md`](docs/deployment.md).
 >
 > Stores chosen by measurement: **Cyberpuerta** and **Liverpool**, both live. Walmart
 > blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not put
@@ -52,7 +53,8 @@ bot, the database or the copy: [`docs/liverpool-parser.md`](docs/liverpool-parse
 Four tables — users, products, trackings, price history — on SQLAlchemy 2 async with
 Alembic migrations. SQLite locally, Postgres in production; most of the design is about
 the places those two disagree quietly, such as a foreign key that is declared and not
-enforced, or a timestamp that loses its timezone on one backend only.
+enforced, or a timestamp that loses its timezone on one backend only. The test suite
+runs on both, so that is checked on every push rather than promised.
 
 A product is keyed on `(store, external_id)` rather than its URL, money is integer cents
 in every column, and the alert rule lives on the tracking row so the part everyone
@@ -97,6 +99,21 @@ uv run price-tracker    # then /start in the chat
 
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
+```
+
+Or the whole thing on Postgres, the way it runs in production:
+
+```bash
+docker compose up --build    # Postgres on host port 5433, migrations, then the bot
+```
+
+The test suite runs on SQLite by default. Point it at a Postgres database it may wipe
+to run it there instead, which is what CI's second leg does:
+
+```bash
+docker compose up -d db
+docker compose exec db createdb -U price_tracker price_tracker_test
+TEST_DATABASE_URL=postgresql://price_tracker:price_tracker@127.0.0.1:5433/price_tracker_test uv run pytest
 ```
 
 Run the spike:

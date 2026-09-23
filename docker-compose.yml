@@ -1,0 +1,60 @@
+# The whole bot locally, against Postgres rather than SQLite — the production shape on
+# one machine. Production uses the same image against Supabase; see docs/deployment.md.
+#
+#   docker compose up -d db              # just the database, e.g. for the test suite
+#   docker compose up --build            # database, migrations, then the bot
+#
+# Only one process may poll a bot token at a time: stop any other copy of the bot
+# before starting this one, or both fail with a Conflict error from Telegram.
+
+name: price-tracker
+
+x-app: &app
+  build: .
+  image: price-tracker-bot:local
+  environment:
+    # Overrides whatever .env says: inside this stack the database is the `db` service.
+    DATABASE_URL: postgresql+asyncpg://price_tracker:price_tracker@db:5432/price_tracker
+
+services:
+  db:
+    # The major version Supabase runs, so a local run and production parse the same DDL.
+    image: postgres:17
+    environment:
+      # Local-only credentials for a database bound to loopback. Not a secret.
+      POSTGRES_USER: price_tracker
+      POSTGRES_PASSWORD: price_tracker
+      POSTGRES_DB: price_tracker
+    ports:
+      # Host port 5433, not 5432. A native Windows Postgres usually already listens on
+      # 5432, and it answers connections meant for this container — the symptom is a
+      # "password authentication failed" that says nothing about ports.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U price_tracker -d price_tracker"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # A one-shot job, not a step inside the bot's startup. A migration that fails should
+  # stop the deploy where it can be read; inside the bot's entrypoint it would crash-loop
+  # under the restart policy instead, retrying a broken migration forever.
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  bot:
+    <<: *app
+    env_file: .env
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:

@@ -1,0 +1,13 @@
+# An allowlist, not a denylist. Everything is excluded and the image's inputs are named
+# one by one, so a secret file added to the repo later — a second .env, a database dump
+# — is kept out of the build context without anyone remembering to list it here.
+*
+
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!alembic.ini
+!alembic/
+
+**/__pycache__

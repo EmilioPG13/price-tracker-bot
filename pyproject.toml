@@ -15,9 +15,11 @@ dependencies = [
     "pydantic-settings>=2.7",
     "sqlalchemy[asyncio]>=2.0.36",
     "alembic>=1.14",
-    # SQLite is the local and test backend. Postgres (asyncpg) arrives with the
-    # deployment in phase 6; nothing here is SQLite-specific by design.
+    # Two backends, one schema: SQLite for local runs and the default test suite,
+    # Postgres in production and in CI's second test leg. Both drivers are async
+    # because the engine is; a sync URL such as `postgresql://` cannot work here.
     "aiosqlite>=0.20",
+    "asyncpg>=0.30",
     # Charts. Used through Figure + FigureCanvasAgg only, never pyplot — see
     # bot/charts.py for why that distinction is load-bearing for a concurrent bot.
     "matplotlib>=3.10",

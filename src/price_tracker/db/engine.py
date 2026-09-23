@@ -36,7 +36,16 @@ def create_engine(url: str, *, echo: bool = False, **kwargs: object) -> AsyncEng
     raises. Postgres enforces them, so this is another bug that exists only where it is
     hardest to see — in the tests passing while production behaves differently, or the
     reverse. The listener below turns it on for each new connection.
+
+    **A networked database drops connections the pool still believes are open.** The bot
+    is idle for hours between checks, and a pooler such as Supabase's closes idle client
+    connections on its own schedule. Without a ping, the first query after a quiet
+    afternoon runs on a dead socket and fails — a `/list` that errors once and then works,
+    which is the hardest kind of report to act on. `pool_pre_ping` spends one round trip
+    per checkout to find out first. SQLite has no socket to lose.
     """
+    if not _is_sqlite(url):
+        kwargs.setdefault("pool_pre_ping", True)
     engine = create_async_engine(url, echo=echo, **kwargs)
 
     if _is_sqlite(url):

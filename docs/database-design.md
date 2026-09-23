@@ -4,8 +4,8 @@ Phase 2: persisting what the scraper reads. This note explains the decisions, in
 one bug that the test suite could not have found and one place where the agreed data
 model was widened.
 
-Everything here runs on SQLite locally and in the tests, and on Postgres in production
-from phase 6. Most of this note is about the places those two disagree, because that is
+Everything here runs on SQLite locally and on Postgres in production, and since phase 6
+the test suite runs on both (`docs/deployment.md`). Most of this note is about the places those two disagree, because that is
 where the interesting failures live: a bug that only exists on one backend shows up as
 tests passing and production misbehaving, or the reverse.
 
@@ -236,8 +236,9 @@ single run, which turns one broken page into a tight loop against a store.
 - **Nothing is wired into `main.py`.** There is no engine created at startup and no
   command that writes a row. Phase 3 adds the commands and the application lifecycle
   together, because an engine with no caller is a guess about how it will be used.
-- **No Postgres driver.** `asyncpg` arrives with the deployment in phase 6. Nothing in
-  this layer is SQLite-specific by design, which is what the choices above are for.
+- **No Postgres driver.** Nothing in this layer is SQLite-specific by design, which is
+  what the choices above are for. `asyncpg` arrived in phase 6, and the whole suite then
+  passed on Postgres without a change to a single model — see `docs/deployment.md`.
 - **No retention policy on `price_history`.** It grows without bound. At one row per
   product per six hours that is ~1,460 rows a year per product, which is not a problem
   worth solving before there is a product count to solve it for.
