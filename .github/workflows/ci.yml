@@ -11,7 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 # Nothing here writes to the repository or reads a secret. The suite is offline and the
-# only database is a throwaway service container, so CI needs no credentials at all.
+# only database is a throwaway service container. The one credential is the token
+# GitHub issues to every run, and only `publish` is allowed to write with it.
 permissions:
   contents: read
 
@@ -89,3 +90,31 @@ jobs:
           docker run --rm --network host
           --env DATABASE_URL=postgresql://test:test@localhost:5432/price_tracker
           price-tracker-bot:ci alembic upgrade head
+
+  # What Northflank runs. Only from main, and only once lint, both test legs and the
+  # image checks have passed, so a red build cannot reach production. Rebuilt rather
+  # than handed over from `image`: jobs share no Docker daemon, and a rebuild is simpler
+  # than a cache. Tagged with the commit, so a deploy can name exactly what it runs.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # GHCR refuses upper case, and the owner's name has some.
+      IMAGE: ghcr.io/emiliopg13/price-tracker-bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build, labelled with the repository so GHCR links the package to it
+        run: >-
+          docker build
+          --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          --tag $IMAGE:${{ github.sha }} --tag $IMAGE:latest .
+      - run: docker push --all-tags $IMAGE
