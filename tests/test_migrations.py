@@ -100,6 +100,32 @@ def test_the_migrations_build_exactly_what_the_models_describe(migrated_database
     )
 
 
+def test_a_password_with_symbols_reaches_the_migrations_intact(monkeypatch, capsys):
+    """The first deploy died here, before connecting to anything.
+
+    A password with symbols is percent-encoded in the URL, and `env.py` used to store the
+    URL in Alembic's config, a ConfigParser, where `%` starts an interpolation. It raised
+    and quoted the URL, password and all, into the log. The suite never saw it, because
+    no test URL here has a `%` in it; this one does.
+
+    Offline mode renders the SQL without a connection, so the test needs no server that
+    accepts this password. It reaches the same line in `env.py` that failed.
+    """
+    url = "postgresql://bot:p%40ss%25w%3Ard@db.example.com:5432/app?sslmode=require"
+    monkeypatch.setenv("DATABASE_URL", url)
+    get_database_settings.cache_clear()
+
+    config = Config(ROOT / "alembic.ini")
+    config.set_main_option("script_location", str(ROOT / "alembic"))
+
+    try:
+        command.upgrade(config, "head", sql=True)
+    finally:
+        get_database_settings.cache_clear()
+
+    assert "CREATE TABLE users" in capsys.readouterr().out
+
+
 def test_the_migrations_can_be_reversed(migrated_database):
     """A downgrade that does not work is a migration that cannot be rolled back.
 

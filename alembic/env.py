@@ -33,8 +33,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set at runtime rather than stored in the tracked ini file. See the module docstring.
-config.set_main_option("sqlalchemy.url", get_database_settings().database_url)
+# Read at runtime rather than stored in the tracked ini file (see the module docstring),
+# and handed to the engine directly rather than through `config.set_main_option`. The
+# config is a ConfigParser, where `%` starts an interpolation, and a password with
+# symbols in it is percent-encoded in the URL. It failed exactly there on the first
+# deploy, and the ConfigParser error quoted the whole URL, password included, into the
+# log.
+database_url = get_database_settings().database_url
 
 target_metadata = Base.metadata
 
@@ -42,7 +47,7 @@ target_metadata = Base.metadata
 def run_migrations_offline() -> None:
     """Emit SQL to stdout without connecting. Useful for reviewing a migration."""
     context.configure(
-        url=config.get_main_option("sqlalchemy.url"),
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -73,6 +78,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        url=database_url,
     )
 
     async with connectable.connect() as connection:
