@@ -15,7 +15,7 @@ the substitution safe rather than clever.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -51,8 +51,8 @@ ACER_URL = "https://www.cyberpuerta.mx/SSD-Acer-GM7-1TB.html"
 A_USER = 11111111
 ANOTHER_USER = 22222222
 
-#: Every test asks for products checked less recently than this. The checker's schedule
-#: and its due-query use one number, so the tests do too.
+#: The schedule's period, as `jobs.py` passes it. The checker derives what is due from
+#: it, so the tests pass the same number and never a threshold of their own.
 INTERVAL = timedelta(hours=6)
 
 #: No waiting. The retry policy is asserted by counting attempts, not by timing them —
@@ -101,6 +101,28 @@ class Outbox:
         if self.failing:
             raise RuntimeError("Telegram is having a day")
         self.sent.append((telegram_id, text))
+
+
+class Clock:
+    """`utc_now` as the repository sees it, moved by the test rather than by time."""
+
+    def __init__(self) -> None:
+        self.now = utc_now()
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+class SlowStore(StoreStub):
+    """A store that takes four seconds to answer, on the test's clock."""
+
+    def __init__(self, clock: Clock, *responses: str | Exception) -> None:
+        super().__init__(*responses)
+        self.clock = clock
+
+    async def fetch(self, url: str) -> PageContent:
+        self.clock.now += timedelta(seconds=4)
+        return await super().fetch(url)
 
 
 @pytest.fixture
@@ -183,6 +205,31 @@ async def test_a_product_checked_recently_is_left_alone(engine, kingston, outbox
     # The point is the request that was never made. The interval is the rate limiter,
     # so a bot restarting every few minutes costs the store nothing.
     assert store.requested == []
+
+
+async def test_what_one_pass_read_is_due_at_the_next(engine, kingston, outbox, monkeypatch):
+    """The schedule and the due-query have to agree about exactly one period later.
+
+    A pass stamps each product when its page arrives, a few seconds after the pass
+    began, and the next pass begins one period after this one did — so every product is
+    those seconds short of a full period. A checker that waited for a full one skipped
+    every other pass: in production a six-hour check ran every twelve hours, and nothing
+    failed. Asking at one hour and at seven, as the repository tests do, cannot see it.
+    """
+    clock = Clock()
+    monkeypatch.setattr("price_tracker.db.repository.utc_now", clock)
+    resources = await tracked(engine, kingston, target="800")
+    store = SlowStore(clock, kingston)
+    resources.fetcher = store
+
+    first_pass = clock.now + INTERVAL
+    clock.now = first_pass
+    await checker.check_all_prices(resources, outbox, interval=INTERVAL, backoff=NO_WAITING)
+    clock.now = first_pass + INTERVAL
+    run = await checker.check_all_prices(resources, outbox, interval=INTERVAL, backoff=NO_WAITING)
+
+    assert run.checked == 1
+    assert len(store.requested) == 2
 
 
 async def test_the_batch_limit_caps_one_pass(engine, kingston, load_fixture, outbox):

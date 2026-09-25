@@ -102,17 +102,23 @@ async def check_all_prices(
 ) -> CheckRun:
     """Check every product due for a reading, and alert whoever asked to be told.
 
-    `interval` is how stale a product has to be before it is worth a request, and it is
-    the real rate limiter — not the schedule. A bot that restarts ten times an hour runs
-    this ten times and fetches nothing, because nothing has aged past the interval.
+    `interval` is how often this runs, and a product is due once it is older than **half**
+    of it. Not all of it: a pass stamps each product when its page arrives, seconds after
+    the pass began, so one period later every product it read is those seconds short of a
+    full period. Waiting for a full one skipped every other pass — a six-hour check ran
+    every twelve hours in production, and nothing failed. Half leaves room for any pass
+    shorter than half a period, and it is still the real rate limiter rather than the
+    schedule: a bot that restarts ten times an hour runs this ten times and reads each
+    product at most once per half period.
 
     `limit` caps one pass. Requests to a store are spaced by `HttpFetcher`, so a hundred
     due products is several minutes of deliberate waiting; stopping early leaves the
     oldest handled and the rest first in line next time, which is exactly the order
     `products_due_for_check` already returns.
     """
+    stale_after = interval / 2  # not all of it; see above
     async with session_scope(resources.sessions) as session:
-        due = await Repository(session).products_due_for_check(interval=interval, limit=limit)
+        due = await Repository(session).products_due_for_check(interval=stale_after, limit=limit)
         # Taken out as plain values, on purpose. The session closes here and these rows
         # would be detached for the rest of the run; carrying ORM instances across a
         # network call and into another session is the kind of thing that works until

@@ -42,8 +42,9 @@ def schedule(application: Application, *, interval: timedelta, limit: int | None
     """Register the recurring price check on the application's job queue.
 
     The interval is passed through `job.data` rather than read from settings inside the
-    callback. It decides which products are due *and* how often the job runs, and those
-    two have to be the same number — reading it in two places is how they stop being.
+    callback. It decides how often the job runs, and the checker derives from it which
+    products are due — so the two are tied to one number, and reading it in two places
+    is how they would come apart.
     """
     if application.job_queue is None:
         raise RuntimeError(

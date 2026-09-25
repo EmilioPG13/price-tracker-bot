@@ -153,9 +153,25 @@ nothing, because nothing has aged past the interval. The first run is 60 seconds
 startup, which is courtesy rather than correctness — it keeps a crash loop from becoming
 a request loop.
 
-The same number is both the job's period and the due-query's threshold, and it is passed
-through the job's `data` rather than read from settings in two places. They have to
-agree; reading it twice is how they stop agreeing.
+One number drives both, passed through the job's `data` rather than read from settings in
+two places: the job runs every `interval`, and a product is due once it is older than
+**half** of it.
+
+That half is a correction, found in production. The first version used the whole
+interval for both, on the argument that they had to agree — and they agreed exactly,
+which was the bug. A pass stamps each product when its page arrives, a few seconds after
+the pass began; the next pass begins one period after this one did, so every product it
+read is those seconds short of due, and waits for the pass after. The six-hour check ran
+every twelve hours. Nothing failed and nothing logged it; the tests asked whether a
+product was due one hour later and seven hours later, never exactly one pass later.
+
+It surfaced when a scheduled run that should have been the deploy's acceptance test
+found nothing due: the products had been added three minutes after the previous run.
+`test_what_one_pass_read_is_due_at_the_next` runs two passes on a clock the test moves,
+against a store that takes four seconds to answer, and fails on the old threshold with
+`checked=0` — the production symptom. Half a period leaves room for any pass shorter than
+three hours, and keeps the rate limit: a restarting bot reads a product at most once per
+half period, not once per restart.
 
 `check_batch_limit` caps one pass, because requests to one host are spaced out and a long
 due list is minutes of deliberate waiting. Stopping early leaves the oldest handled and

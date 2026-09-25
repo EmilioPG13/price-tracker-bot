@@ -71,9 +71,9 @@ class Settings(DatabaseSettings):
     bot_token: str
     scraper_user_agent: str = "price-tracker-bot/0.1 (+https://github.com/)"
 
-    #: How stale a product has to be before the checker spends a request on it, and how
-    #: often the job runs. One number for both on purpose: they are the same question
-    #: asked from two ends, and letting them differ makes a run that fetches nothing.
+    #: How often the price check runs. The checker derives from it how stale a product
+    #: must be to get a request — half of it, see `checker.check_all_prices` — so the
+    #: schedule and the due-query cannot be set apart.
     check_interval_hours: int = 6
 
     #: The most products one pass will read. Requests to a store are spaced out, so a
