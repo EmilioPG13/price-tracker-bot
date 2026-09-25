@@ -1,13 +1,13 @@
-# Deployment: Postgres, Docker and CI
+# Deployment: Postgres, Docker, CI and Northflank
 
 Phase 6: the phase that decides whether this project goes anywhere. Until now the bot
 has run where somebody ran it. The acceptance test for this phase is the one from the
 original plan, and it is the right one: **turn the computer off and see whether the
 alerts still arrive.**
 
-This note covers the half that does not depend on where the bot ends up — Postgres as a
-real backend, the image, and CI. The host is still open, and the last section says why
-that turned out to be a harder question than the plan assumed.
+The first half of this note is what does not depend on where the bot runs — Postgres as
+a real backend, the image, and CI. The second half is where it runs — Northflank, with
+the database on Supabase — and what the first production deploy found that no test had.
 
 ## Postgres is a second test backend, not only a production one
 
@@ -102,6 +102,30 @@ enough. The checker reads its due list every six hours whether or not anything i
 the bot makes at least four queries a day with no users at all. That should be enough,
 and it is not verified until a week has passed.
 
+## Supabase's Data API is off, and RLS is on with no policies
+
+Supabase generates a REST API over the `public` schema, and its security advisor flags
+every table there without row level security. This bot never uses that API: it connects
+to Postgres directly, as the owner of its tables. So the project was created with the
+Data API **off** — the door the advisor worries about does not exist — and with
+Supabase's automatic RLS **on**, which enables row level security on each new table in
+`public` and adds no policies.
+
+RLS with no policies denies everything to every role it applies to, and it does not apply
+to the bot: a table's owner bypasses it, and so does a role with `BYPASSRLS`. The bot's
+role is both. Checked after the first migration rather than assumed:
+
+| tables | RLS | owner | owner bypasses RLS |
+|---|---|---|---|
+| `alembic_version`, `price_history`, `products`, `trackings`, `users` | on | `postgres` | yes |
+
+Rejected: **policies**, because there is no client to grant anything to; **an Alembic
+migration that enables RLS**, because it is a Postgres-only statement that needs a
+dialect guard on SQLite, and it would write one host's concern into the schema history;
+**leaving the Data API on**, an unused door on the public internet. The cost of the
+choice: the setting lives in the Supabase project, not in the repository. That is where
+it belongs, since the Data API that makes it matter is Supabase's too.
+
 ## The image
 
 Two stages from the same `python:3.13-slim`. The first has uv and builds the virtualenv;
@@ -162,22 +186,67 @@ symptom is a `password authentication failed` that says nothing about ports.
 - **image** — builds the image, imports the bot inside it, and migrates an empty
   Postgres with it. The URL in that step is written the way a dashboard hands it out,
   `postgresql://`, on purpose: it is the path production will take.
+- **publish** — on a push to `main` only, and only once the other three have passed:
+  rebuilds the image and pushes it to `ghcr.io/emiliopg13/price-tracker-bot`, tagged
+  with the commit hash and with `latest`. This is what production runs; see below.
 
-It reads no secrets and asks for `contents: read` only. The suite is offline and the one
-database is a throwaway container, so CI has nothing worth stealing — which is also why
-the repository can stay public without thinking about what a fork's workflow can see.
+It reads no secrets. Every job gets `contents: read`; `publish` alone also gets
+`packages: write`, and its one credential is the token GitHub issues to every run. The
+suite is offline and the one database is a throwaway container, so CI has nothing worth
+stealing — which is also why the repository can stay public without thinking about what
+a fork's workflow can see. A pull request never runs `publish`.
 
-The image job and the Postgres setup were reproduced locally before being written down.
-**The workflow itself has not run on GitHub yet**; that happens with the push.
+The whole workflow passed on its first run on GitHub, including the `image` job's
+`--network host`, which could not be tried as written on Docker Desktop.
 
-## Where it runs: still open, and harder than the plan assumed
+## Where it runs: Northflank
+
+Since phase 4 the checker lives in the polling process, so the host must keep **one
+process alive**, at zero cost — not run a job now and then. It is **Northflank's free
+Developer Sandbox**, region US Central: services that do not sleep, two services and two
+jobs free. Northflank wants a card on file even on the free tier; its forms state *"You
+won't be charged while on the Developer Sandbox plan"*, and everything here stays inside
+those limits — one service, one job, no addon, the smallest compute plan.
+
+That plan is 0.1 shared vCPU and 256 MB. The image's heaviest work — every module
+imported, both 1 MB Liverpool pages parsed, a chart drawn — peaks at 157 MB, and it ran
+to completion under exactly that limit before the host was chosen. In production the bot
+takes about 18 seconds from container start to polling, which does not matter for a
+poller.
+
+Supabase placed the database in us-west-2 when "Americas" was chosen; the bot runs in US
+Central. At a few queries per command the distance does not show: an `/add`, store fetch
+included, answers in about three seconds.
+
+### Northflank runs an image; it does not build one
+
+Northflank can build from the repository on every push. It does not deploy that way here:
+
+- **Zero cost is certain rather than assumed.** Neither Northflank's pricing page nor its
+  billing docs say whether builds are included in the free tier. GitHub Actions and GHCR
+  are free for a public repository.
+- **Only what passed CI can be deployed.** Northflank's own CI builds every push to
+  `main`, green or red. `publish` runs after lint, both test legs and the image checks.
+- **The migration and the bot run the same image.** Both are pinned to one commit's tag,
+  never `latest`, which moves with every push.
+
+| On Northflank | What it is |
+|---|---|
+| secret group `price-tracker` | `BOT_TOKEN` and `DATABASE_URL`, as runtime variables, never build arguments |
+| job `migrate` | manual; the image with its command overridden to `alembic upgrade head` |
+| service `bot` | the image's default command, `price-tracker`; one instance, **no port** — it polls Telegram, and nothing connects to it |
+
+A deploy, in order: push to `main` and wait for `publish`; point `migrate` at the new
+commit's tag and run it — if it fails, stop there, and the running bot is untouched; then
+point `bot` at the same tag. The first price check runs a minute after the bot starts.
+Northflank keeps the logs, so the production compose file with log rotation that this
+note once planned is not needed.
+
+### Why not Oracle, which the plan named
 
 The plan named Oracle Cloud's Always Free tier: permanent, and the store measurements
-already cleared datacenter IPs. Phase 4 then made the requirement stricter — the checker
-lives in the polling process, so the host must keep **one process alive**, not run a job
-now and then.
-
-Oracle's own documentation has a clause that bears directly on that:
+already cleared datacenter IPs. Its own documentation has a clause that bears directly
+on a single long-lived process:
 
 > Idle Always Free compute instances may be reclaimed by Oracle. Oracle will deem
 > virtual machine and bare metal compute instances as idle if, during a 7-day period,
@@ -192,7 +261,7 @@ one of those conditions. It is exactly what Oracle calls idle. The consequence w
 error; it would be alerts that quietly stop arriving some week after the acceptance test
 passed.
 
-Two ways around it circulate, and neither is taken yet:
+Two ways around it circulate, and neither was taken:
 
 - **Burning CPU to look busy** (tools exist for exactly this). Not an option here, for
   the same reason the scrapers do not rotate proxies: it defeats a provider's stated
@@ -203,13 +272,98 @@ Two ways around it circulate, and neither is taken yet:
   documentation, so it is a report, not a fact. It also turns the card from identity
   verification into a card that can be billed.
 
-**Supabase is what makes this survivable either way.** The data lives outside the host,
-so a reclaimed or replaced machine costs a redeploy, not the price history. The host is
-disposable; the data is not.
+**Supabase is what makes any host survivable.** The data lives outside it, so a
+reclaimed or replaced machine costs a redeploy, not the price history. The host is
+disposable; the data is not. Cloud Run with Cloud Scheduler is the fallback if
+Northflank stops fitting — webhook mode and the checker as an endpoint, which phase 4
+made an entry point rather than a rewrite.
 
-The decision is Emilio's and is not taken in this note. When it is, this section records
-it, and the production compose file — with log rotation, since Docker's default log
-driver never deletes anything — follows from it.
+## What the first production deploy found
+
+The migration job failed three times before it passed. None of the three was visible to
+the suite, and each error said something more precise than it first appeared to.
+
+1. **A password with symbols broke the migrations — and printed itself.** `alembic/env.py`
+   handed the URL to Alembic through `config.set_main_option`. Alembic's config is a
+   ConfigParser, where `%` starts an interpolation, and a password with symbols is
+   percent-encoded in the URL. It raised before connecting to anything, and the
+   ConfigParser error quoted the whole URL into the job's log, password included. The
+   password was rotated at once. The URL now goes to the engine directly, and a test runs
+   the migrations offline with a percent-encoded password; on the old `env.py` it fails
+   with the production error.
+
+   The part worth keeping: `async_database_url()` was already tested with exactly such a
+   password (see above). The rewrite was right. The next thing to touch the URL was never
+   tested with it. **A value has to be tested through every consumer, not only the one
+   that produces it.**
+2. **`ssl=` takes one exact word.** asyncpg reads `ssl=require` as an SSL mode, and
+   anything else — `Require`, `true`, a trailing space or a stray quote from pasting —
+   fails with ``` `sslmode` parameter must be one of … ``` before any connection is
+   attempted. Each variant was reproduced locally; the fix was in the secret, not the code.
+3. **A wrong password names the right user.** Supabase's pooler answers an unknown
+   project with "Tenant or user not found", so `password authentication failed for user
+   "postgres"`, read carefully, confirms that the network, TLS through the pooler and the
+   project reference are all correct. Only the password was wrong; a second reset, copied
+   rather than typed, fixed it.
+
+The third attempt is also where `?ssl=require` through Supabase's pooler, the one link
+never tried before the deploy, turned out to work.
+
+## Verified live, 2026-09-24
+
+On Northflank against Supabase, driven from the phone:
+
+```
+migrate  Running upgrade  -> 22b08eb64bc5, initial schema          exit 0
+bot      price check scheduled every 6:00:00 (limit=25)
+         resources ready
+         Application started
+         price check: nothing due                                   60 s later
+/add Kingston A400, target 800         -> tracking cyberpuerta/c156664f… at 80000 cents
+/add Liverpool 1100215191, target 700  -> tracking liverpool/1100215191 at 70000 cents
+```
+
+**The two `/add`s are also the store measurement from Northflank's IP.** The stores had
+been measured from a residential IP and from Azure only, and in phase 0 Walmart's `200`
+turned out to be a 13 KB anti-bot page. A parse is a stricter test than a status code or
+a body size: the parser fails on an interstitial rather than reading it, and the lines
+above are written only after a page has been fetched, parsed and stored. Both stores
+served Northflank.
+
+**The acceptance test passed, at the second attempt to run it.** The first was meant to
+be the scheduled run at 01:14 UTC, and it was never a test: the SQL that arms it had not
+been run, and the run would have found nothing due anyway — the two `/add`s landed three
+minutes after the 19:14 run, so at 01:14 they were three minutes short of six hours old.
+Reading why turned up a bug in the schedule; see below.
+
+The second was armed by hand in Supabase's SQL editor: both products backdated a day so
+they were due, their last price set to a fake $1,500 so the alert would have an
+"antes", both targets raised to $1,000, the alert bookkeeping cleared. The service was
+restarted, since the first check runs a minute after the bot starts, and the computer
+was turned off. At 02:27 UTC both messages arrived on the phone:
+
+```
+🎉 ¡Bajó de precio!
+
+Kingston SA400S37/240G SSD 2.5" SATA III
+Ahora: $889.00 MXN
+Antes: $1,500.00 MXN
+Tu objetivo: $1,000.00 MXN
+```
+
+and the same for the batidora at $668.00. The database agreed: one new reading per
+product, four seconds apart, and each tracking's `last_alerted_at` set to the moment of
+its reading. The targets were put back afterwards.
+
+**The empty 01:14 run exposed a bug: a product was checked every twelve hours, not
+six.** The job runs every six hours and checks what is at least six hours old. A product
+checked by one pass is stamped a few seconds after that pass starts, once its page has
+been fetched, so six hours later, when the next pass starts, it is those few seconds
+short of due and waits for the pass after. The two numbers were kept equal on purpose —
+`jobs.py` said so — and the equality is the bug. The tests asked whether a product was
+due one hour later and seven hours later, never exactly one pass later. A product is now
+due once it is older than half the period; `docs/price-checker.md` has the reasoning and
+the test that asks the missing question.
 
 ## Verified locally, 2026-09-22
 
@@ -230,9 +384,10 @@ correctly against an aware `now`. That comparison is the one `UtcDateTime` exist
 
 ## What phase 6 has not done yet
 
-- Chosen the host. See above.
-- Created the Supabase project, run `alembic upgrade head` against it, and put the two
-  secrets where the host can read them.
-- The production compose file and the deploy itself.
-- The acceptance test: computer off, alert arrives.
 - The README's final shape.
+- A week on Supabase, to see whether four queries a day keep the free project awake.
+- Read the first restart's logs. Northflank does not halt the old container until its
+  replacement is running, so for a moment two processes poll with one token and Telegram
+  should answer one of them with `Conflict`. The acceptance test's restart was the first
+  one; its logs have not been read yet.
+- Northflank's billing page, a few days in. It should read $0.00.
