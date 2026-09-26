@@ -167,7 +167,39 @@ under it. Two things keep it honest.
    in the same second rather than next week.
 
 Removing a tracking leaves the product row and its history alone. Somebody else may be
-watching it, and re-adding it later should not start from an empty chart.
+watching it, and re-adding it later should not start from an empty chart. Once nobody
+tracks it, though, the checker stops reading it — see the next section.
+
+## A cap per user, once the bot was public
+
+Added in phase 6, when the README started linking the bot to anyone who reads it.
+
+The checker reads at most `check_batch_limit` pages a pass (25), stalest first. That
+order means nobody is ever skipped, but every product one user adds pushes everyone
+else's next reading further out: one stranger pasting a hundred links would turn
+six-hour checks into day-long ones for everybody. So `/add` refuses a *new* product past
+`MAX_TRACKINGS_PER_USER` (10), and the refusal says why and what to do instead.
+
+Two details are the whole design.
+
+1. **The cap is checked after the fetch, not before.** At the limit, `/add` on a product
+   already tracked is a change of target and has to keep working. Which product a link
+   points at is only known once the page says so — Cyberpuerta's id is not in its URLs
+   (see "`/add` cannot skip the fetch") — so checking before the fetch would either
+   refuse target changes or guess. The cost is one store request for a refused `/add`,
+   the same as any other `/add`. A refusal writes nothing, not even the product row.
+2. **A cap alone could be walked around.** Before this, `products_due_for_check` returned
+   every active product, tracked or not, so a removed product was read every pass,
+   forever, on nobody's behalf. Add ten, remove ten, repeat, and the rows left behind
+   would fill every pass whatever the cap said. A product is now due only while someone
+   tracks it. The test for that was seen failing on the old query with `checked=1`.
+
+Why 10: someone trying the bot from the README adds one or two products, and ten leaves
+room for real use while bounding what one person can cost everyone else. It does not
+bound the total — three people at the cap already exceed a pass of 25 — but past that
+point every product is checked less often rather than some not at all, which is the
+right way for this to degrade. If the bot ever has that many users, the next knob is
+`check_batch_limit`, not the cap.
 
 ## No parse mode, and the live run proved it
 

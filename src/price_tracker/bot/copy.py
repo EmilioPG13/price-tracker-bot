@@ -162,6 +162,21 @@ def added(data: ProductData, target_cents: int, *, alerting: bool) -> str:
     return "\n".join(lines)
 
 
+def tracking_limit(limit: int) -> str:
+    """The reply to an `/add` that would take a user past the per-user cap.
+
+    Says why the cap exists, because a bare "límite alcanzado" reads as a paywall. And it
+    names the one `/add` that still works at the limit — moving the target of something
+    already tracked — since the obvious way out, removing and re-adding, is a detour.
+    """
+    return (
+        f"Ya sigues {limit} productos, que es el máximo por persona: así me alcanza el "
+        "tiempo para revisar los de todos.\n\n"
+        "Quita uno con /remove <número> para hacer espacio. Si solo quieres cambiar el "
+        "objetivo de uno que ya sigues, mándame el mismo /add con el precio nuevo."
+    )
+
+
 def tracking_list(trackings: Sequence[Tracking]) -> str:
     """The `/list` reply. Callers must pass trackings with `product` already loaded."""
     blocks = [LIST_HEADER]

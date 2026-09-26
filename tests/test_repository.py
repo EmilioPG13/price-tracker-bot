@@ -45,6 +45,14 @@ def fetcher(load_fixture):
     return SavedPageFetcher(load_fixture("cyberpuerta-ssd-kingston-a400.html"))
 
 
+async def tracked_product(repo, product_data, **overrides) -> Product:
+    """A product somebody tracks — the only kind the checker ever considers due."""
+    product = await repo.upsert_product(product_data(**overrides))
+    user = await repo.get_or_create_user(11111111)
+    await repo.set_tracking(user, product, 50000)
+    return product
+
+
 # ---- identity ------------------------------------------------------------------
 
 
@@ -197,7 +205,7 @@ async def test_removing_a_tracking_that_is_not_there_says_so(repo, session, prod
 
 
 async def test_a_never_checked_product_is_due(repo, session, product_data, now):
-    product = await repo.upsert_product(product_data())
+    product = await tracked_product(repo, product_data)
     await session.commit()
 
     due = await repo.products_due_for_check(interval=SIX_HOURS, now=now)
@@ -205,8 +213,19 @@ async def test_a_never_checked_product_is_due(repo, session, product_data, now):
     assert [p.id for p in due] == [product.id]
 
 
+async def test_a_product_nobody_tracks_is_never_due(repo, session, product_data, now):
+    # Neither one that was never tracked nor one whose last tracking was removed. Both
+    # rows stay — the history is worth keeping — but a request on nobody's behalf is not.
+    await repo.upsert_product(product_data(external_id="never-tracked"))
+    removed = await tracked_product(repo, product_data, external_id="removed")
+    await repo.remove_tracking(await repo.get_or_create_user(11111111), removed.id)
+    await session.commit()
+
+    assert await repo.products_due_for_check(interval=SIX_HOURS, now=now) == []
+
+
 async def test_a_recently_checked_product_is_not_due(repo, session, product_data, now, hours):
-    product = await repo.upsert_product(product_data())
+    product = await tracked_product(repo, product_data)
     await repo.record_success(product, product_data(), now=now)
     await session.commit()
 
@@ -220,9 +239,9 @@ async def test_never_checked_products_come_first(repo, session, product_data, no
     A checker that silently visits brand-new products last is not an error anyone would
     notice from a log.
     """
-    checked = await repo.upsert_product(product_data(external_id="checked"))
+    checked = await tracked_product(repo, product_data, external_id="checked")
     await repo.record_success(checked, product_data(external_id="checked"), now=now - hours(48))
-    fresh = await repo.upsert_product(product_data(external_id="fresh"))
+    fresh = await tracked_product(repo, product_data, external_id="fresh")
     await session.commit()
 
     due = await repo.products_due_for_check(interval=SIX_HOURS, now=now)
@@ -231,7 +250,7 @@ async def test_never_checked_products_come_first(repo, session, product_data, no
 
 
 async def test_a_retired_product_is_never_due(repo, session, product_data, now):
-    product = await repo.upsert_product(product_data())
+    product = await tracked_product(repo, product_data)
     await repo.record_failure(product, permanent=True, now=now)
     await session.commit()
 
@@ -240,7 +259,7 @@ async def test_a_retired_product_is_never_due(repo, session, product_data, now):
 
 async def test_the_checker_can_cap_how_much_it_takes_on(repo, session, product_data, now):
     for index in range(5):
-        await repo.upsert_product(product_data(external_id=f"id{index}"))
+        await tracked_product(repo, product_data, external_id=f"id{index}")
     await session.commit()
 
     due = await repo.products_due_for_check(interval=SIX_HOURS, limit=2, now=now)

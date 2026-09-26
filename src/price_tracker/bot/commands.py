@@ -42,6 +42,13 @@ CHART_WINDOW = timedelta(days=90)
 #: a user who just ran `/add` would get exactly that.
 MIN_CHART_POINTS = 2
 
+#: The most products one person can track at once. The bot is linked from the README, so
+#: anyone can use it, and the checker reads a bounded number of pages per pass
+#: (`Settings.check_batch_limit`), stalest first. Every product one user adds pushes
+#: everyone else's next reading further out; without a cap, one stranger pasting a
+#: hundred links would turn six-hour checks into day-long ones for everybody.
+MAX_TRACKINGS_PER_USER = 10
+
 
 @dataclass(frozen=True, slots=True)
 class Chart:
@@ -70,6 +77,11 @@ async def add_tracking(resources: Resources, telegram_id: int, args: Sequence[st
     guess at. A pasted price is one token (`1,899.00`); three tokens means something
     unintended happened, and quietly using the first two would act on a command the user
     did not give.
+
+    **The per-user cap is checked after the fetch too, for the same reason.** At the
+    limit, re-adding a product already tracked is a change of target, not a new row, and
+    it must keep working — but which product a link points at is only known once the
+    page has said so. A refused `/add` writes nothing: no product, no reading.
     """
     if len(args) != 2:
         return copy.ADD_USAGE
@@ -96,6 +108,15 @@ async def add_tracking(resources: Resources, telegram_id: int, args: Sequence[st
     async with session_scope(resources.sessions) as session:
         repo = Repository(session)
         user = await repo.get_or_create_user(telegram_id)
+        # Before `upsert_product`, so a refused `/add` leaves no product row behind.
+        trackings = await repo.list_trackings(user)
+        already_tracked = any(
+            (t.product.store, t.product.external_id) == (data.store, data.external_id)
+            for t in trackings
+        )
+        if not already_tracked and len(trackings) >= MAX_TRACKINGS_PER_USER:
+            logger.info("telegram_id=%s is at the tracking limit", telegram_id)
+            return copy.tracking_limit(MAX_TRACKINGS_PER_USER)
         product = await repo.upsert_product(data)
         tracking = await repo.set_tracking(user, product, target_cents)
         # The page was just read, so this is a genuine observation and belongs in the

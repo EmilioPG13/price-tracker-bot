@@ -115,11 +115,17 @@ class Repository:
     async def products_due_for_check(
         self, *, interval: timedelta, limit: int | None = None, now: datetime | None = None
     ) -> Sequence[Product]:
-        """Active products not checked within `interval`, oldest first.
+        """Active products someone tracks, not checked within `interval`, oldest first.
 
         Never-checked products come first: `nulls_first()` is explicit because the two
         backends disagree about where NULL sorts in an ascending order, and a checker
         that silently visits new products last is hard to notice.
+
+        **A product nobody tracks is never due.** `remove_tracking` keeps the row and its
+        history on purpose, so without this every removed product would cost a store
+        request every pass forever, on nobody's behalf. On a public bot it is also what
+        makes the per-user cap mean anything: add ten, remove ten, repeat, and the rows
+        left behind would fill every pass.
         """
         moment = now if now is not None else utc_now()
         cutoff = moment - interval
@@ -128,6 +134,7 @@ class Repository:
             select(Product)
             .where(
                 Product.status == ProductStatus.ACTIVE,
+                select(Tracking.id).where(Tracking.product_id == Product.id).exists(),
                 or_(Product.last_checked_at.is_(None), Product.last_checked_at <= cutoff),
             )
             .order_by(Product.last_checked_at.asc().nulls_first(), Product.id)

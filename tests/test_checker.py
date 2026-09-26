@@ -450,6 +450,22 @@ async def test_a_retired_product_stops_costing_requests(engine, kingston, outbox
     assert store.requested == []
 
 
+async def test_a_product_nobody_tracks_stops_costing_requests(engine, kingston, outbox):
+    # `/remove` keeps the product and its history on purpose. Without this, every removed
+    # product would be read every pass forever, and on a public bot the per-user cap could
+    # be walked around by adding and removing until the passes were full.
+    resources = await tracked(engine, kingston, target="800")
+    await commands.remove_tracking(resources, A_USER, ["1"])
+    await make_due(resources)
+    store = StoreStub(kingston)
+    resources.fetcher = store
+
+    run = await checker.check_all_prices(resources, outbox, interval=INTERVAL, backoff=NO_WAITING)
+
+    assert run.checked == 0
+    assert store.requested == []
+
+
 async def test_transient_failures_retire_only_after_a_run_of_them(engine, kingston, outbox):
     resources = await tracked(engine, kingston, target="800")
     resources.fetcher = StoreStub(StoreRefusedError("store refused with HTTP 403"))

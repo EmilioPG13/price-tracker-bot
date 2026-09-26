@@ -243,6 +243,75 @@ async def test_an_unsupported_store_is_refused_without_a_request(resources, fetc
     assert fetcher.requested == []
 
 
+async def fill_to_the_limit(resources, telegram_id: int, *, leave_free: int = 0) -> None:
+    """Give a user trackings up to the per-user cap, minus `leave_free`.
+
+    Built by hand rather than through `/add`: there are only four captured pages, and the
+    cap is about how many rows a user has, not about what is in them.
+    """
+    async with session_scope(resources.sessions) as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(telegram_id)
+        for n in range(commands.MAX_TRACKINGS_PER_USER - leave_free):
+            product = Product(
+                store="cyberpuerta",
+                external_id=f"{telegram_id}-{n}",
+                canonical_url=f"https://www.cyberpuerta.mx/{telegram_id}-{n}.html",
+                name=f"Producto {n}",
+                currency="MXN",
+            )
+            session.add(product)
+            await session.flush()
+            await repo.set_tracking(user, product, 50000)
+
+
+async def test_at_the_limit_a_new_product_is_refused_and_nothing_is_written(resources):
+    await fill_to_the_limit(resources, A_USER)
+
+    reply = await commands.add_tracking(resources, A_USER, [KINGSTON_URL, "800"])
+
+    assert reply == copy.tracking_limit(commands.MAX_TRACKINGS_PER_USER)
+    async with session_scope(resources.sessions) as session:
+        # No Kingston row and no reading. A product row left behind would be a request a
+        # pass for nobody, which is the cost the cap exists to bound.
+        assert await count(session, Tracking) == commands.MAX_TRACKINGS_PER_USER
+        assert await count(session, Product) == commands.MAX_TRACKINGS_PER_USER
+        assert await count(session, PriceHistory) == 0
+
+
+async def test_the_last_free_slot_can_be_filled(resources):
+    await fill_to_the_limit(resources, A_USER, leave_free=1)
+
+    reply = await commands.add_tracking(resources, A_USER, [KINGSTON_URL, "800"])
+
+    assert "Kingston" in reply
+    async with session_scope(resources.sessions) as session:
+        assert await count(session, Tracking) == commands.MAX_TRACKINGS_PER_USER
+
+
+async def test_at_the_limit_moving_a_target_still_works(resources):
+    # The one `/add` that must survive the cap: it changes a row rather than adding one.
+    # This is why the check waits for the fetch — only the page says which product it is.
+    await fill_to_the_limit(resources, A_USER, leave_free=1)
+    await commands.add_tracking(resources, A_USER, [KINGSTON_URL, "800"])
+
+    reply = await commands.add_tracking(resources, A_USER, [KINGSTON_URL, "750"])
+
+    assert "$750.00 MXN" in reply
+    async with session_scope(resources.sessions) as session:
+        kingston = await session.scalar(select(Product).where(Product.external_id == KINGSTON_ID))
+        tracking = await session.scalar(select(Tracking).where(Tracking.product_id == kingston.id))
+        assert tracking.target_price_cents == 75000
+
+
+async def test_the_limit_is_per_user(resources):
+    await fill_to_the_limit(resources, A_USER)
+
+    reply = await commands.add_tracking(resources, ANOTHER_USER, [KINGSTON_URL, "800"])
+
+    assert "Kingston" in reply
+
+
 async def test_a_store_refusal_is_reported_and_writes_nothing(engine):
     resources = Resources(
         engine=engine,
