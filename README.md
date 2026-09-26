@@ -1,67 +1,25 @@
 # price-tracker-bot
 
-Telegram bot that tracks product prices in online stores, keeps their history, and
-alerts you when a price drops below your target.
+A Telegram bot that watches product prices in Mexican online stores and messages you when
+one drops to the price you asked for.
 
-> **Status: phase 6 in progress.** Paste a product link and a target price, and the bot
-> reads the page, keeps the product's history, re-checks it on a schedule and messages
-> you when the price crosses your target. `/chart` draws what it has seen. It runs on
-> Postgres, in Docker, with CI on both database backends; it is not deployed yet, so for
-> now it runs where you run it. See [`docs/deployment.md`](docs/deployment.md).
->
-> Stores chosen by measurement: **Cyberpuerta** and **Liverpool**, both live. Walmart
-> blocks datacenter IPs, Amazon's terms forbid scraping, Mercado Libre does not put
-> prices in its server HTML. Full evidence and reasoning in
-> [`docs/store-viability.md`](docs/store-viability.md).
+<!--
+  15-second GIF of the bot in use: /add → reply → /chart. Save it as docs/demo.gif and
+  replace this comment with:
+  <p align="center"><img src="docs/demo.gif" width="320" alt="Adding a product to the bot and asking for its price chart"></p>
+-->
 
-## Why the spike comes first
+**Python 3.13** · python-telegram-bot · SQLAlchemy 2 (async) + Alembic · PostgreSQL on
+Supabase · Docker · GitHub Actions · Northflank
 
-A price tracker is only worth building if the stores answer. Two facts make that a
-real constraint:
+Deployed and running since September 2026, at zero cost: Northflank runs the image CI
+publishes, against Postgres on Supabase. It passed the test the project was built
+against — computer off, and the price alerts still arrived.
 
-- Mercado Libre's API returns `403` to anonymous traffic and requires a registered
-  OAuth application.
-- Its storefront blocks datacenter IP ranges — which is what every free hosting
-  tier hands out.
+## Try it
 
-So before any scraper is written, [`scripts/store_spike.py`](scripts/store_spike.py)
-measures each candidate store from two networks: a residential one and a GitHub
-Actions runner (a datacenter IP, free and unlimited on a public repo). The results
-in [`docs/store-viability.md`](docs/store-viability.md) decide which stores make the
-MVP and where the bot can run.
-
-## The scraper
-
-`Fetcher` (how bytes arrive) and `Parser` (how bytes become a product) are separate, so
-a store changing its HTML and a store blocking our requests are two different repairs.
-Parsing is synchronous and I/O-free, which is why the whole suite runs offline against
-real pages saved in [`tests/fixtures/`](tests/fixtures/).
-
-Two decisions are worth reading before the code, both made against the obvious option
-and both settled by looking at real pages — a product's identity is not in its URL, and
-a store's `sku` is not the store's id for it:
-[`docs/scraper-design.md`](docs/scraper-design.md).
-
-The second store is where that split had to pay for itself. Liverpool publishes no
-structured data at all, so it is read a completely different way — out of the state its
-Next.js pages stream inline — behind the same fetcher and the same `fetch_product` call.
-Adding it touched two new files and one line of the parser table, and nothing in the
-bot, the database or the copy: [`docs/liverpool-parser.md`](docs/liverpool-parser.md).
-
-## Storage
-
-Four tables — users, products, trackings, price history — on SQLAlchemy 2 async with
-Alembic migrations. SQLite locally, Postgres in production; most of the design is about
-the places those two disagree quietly, such as a foreign key that is declared and not
-enforced, or a timestamp that loses its timezone on one backend only. The test suite
-runs on both, so that is checked on every push rather than promised.
-
-A product is keyed on `(store, external_id)` rather than its URL, money is integer cents
-in every column, and the alert rule lives on the tracking row so the part everyone
-forgets — re-arming after the price recovers — cannot be omitted by a caller:
-[`docs/database-design.md`](docs/database-design.md).
-
-## The bot
+**[t.me/Emilio_price_tracker_bot](https://t.me/Emilio_price_tracker_bot)**, then `/start`.
+The bot speaks Spanish.
 
 ```
 /add <link> <precio>    track a product, and say what price is worth hearing about
@@ -70,71 +28,168 @@ forgets — re-arming after the price recovers — cannot be omitted by a caller
 /remove <número>        stop tracking the one with that number
 ```
 
-Plus the half you do not type: every few hours the bot re-reads every product that has
-gone stale and messages whoever asked to be told when one crosses their target.
+It reads links from **Cyberpuerta** and **Liverpool**. Every six hours it re-reads what
+people track and writes to whoever asked to hear about a price that has reached their
+target. Up to 10 products per person.
 
-A command returns text and imports no `telegram`; the PTB handlers are four-line
-adapters around it. The scheduled checker comes through that same seam — it has no chat
-to reply to, so it takes a "send this to that user" callable instead. Both halves go
-through one scraper function and one repository, which is what stops the two runtimes
-growing different ideas of what recording a price means. The suite exercises the real
-parser, the real repository and the real alert rule without constructing a single
-`Update`, and replaces Telegram with a list.
+**What it keeps about you:** your Telegram id and the products you track. Its logs also
+record each message you send it, with your username, because that is how a problem gets
+diagnosed.
 
-Each of the scraper's error types becomes its own reply, which is what that hierarchy
-was built for. `/add` reads a live page, so it records the price and applies it to the
-alert rule: if the product is already under your target, the reply *is* the alert, and
-the checker does not repeat it later.
-[`docs/bot-commands.md`](docs/bot-commands.md) and
-[`docs/price-checker.md`](docs/price-checker.md).
+## How it works
 
-## Running it
+```mermaid
+flowchart LR
+    you(["You, in Telegram"]) <--> api["Telegram Bot API"]
 
-```bash
-uv sync
-cp .env.example .env    # then fill in BOT_TOKEN from @BotFather
+    subgraph host ["Northflank: one container"]
+        direction TB
+        handlers["handlers.py<br/>PTB adapters"] --> commands["commands.py<br/>/add /list /chart /remove"]
+        jobs["jobs.py<br/>every 6 hours"] --> checker["checker.py"]
+        commands --> fetch["fetch_product()"]
+        checker --> fetch
+        commands --> repo["Repository"]
+        checker --> repo
+    end
 
-uv run alembic upgrade head
-uv run price-tracker    # then /start in the chat
-
-uv run pytest
-uv run ruff check . && uv run ruff format --check .
+    api <-->|long polling| handlers
+    jobs -.->|price alerts| api
+    fetch -->|one request per page| stores[("Cyberpuerta<br/>Liverpool")]
+    repo --> db[("PostgreSQL<br/>Supabase")]
 ```
 
-Or the whole thing on Postgres, the way it runs in production:
+**Two callers, one service layer.** A command is a function that returns text and
+imports nothing from `telegram`; the handlers are four-line adapters around it. The
+scheduled checker comes through the same seam. It has no chat to reply to, so it takes a
+"send this to that user" callable instead. Both go through one scraper function and one
+repository, so the two can never disagree about what recording a price means. That is
+also why the tests reach everything behind the adapters without building a single
+Telegram `Update`.
+
+**From commit to production:** a push to `main` runs lint, the test suite on SQLite *and*
+Postgres, and checks on the Docker image. Only when all of that is green does CI publish
+the image to GHCR, tagged with the commit. A deploy points Northflank's migration job at
+that tag, runs it, and then points the bot at the same tag. Details in
+[`docs/deployment.md`](docs/deployment.md).
+
+## Decisions, and why
+
+Each part of the system has a note in [`docs/`](docs/) with the reasoning behind it. The
+short version:
+
+- **Stores were chosen by measurement.** From a datacenter IP all five candidates answered
+  `200`, and two of those answers were lies. Walmart's was a 13 KB anti-bot page. Comparing
+  body sizes from two networks gave it away.
+  [store-viability](docs/store-viability.md)
+- **Structured data before CSS selectors.** Cyberpuerta is read from its `schema.org`
+  JSON-LD. Liverpool publishes none, so it is read from the state its Next.js pages stream
+  inline, behind the same `fetch_product()`. Adding that store took two new files and one
+  line of the parser table.
+  [scraper-design](docs/scraper-design.md), [liverpool-parser](docs/liverpool-parser.md)
+- **A product is the store's own id, not its URL or its SKU.** One SSD arrived as three
+  different URLs in a single page load, and the `sku` turned out to be the manufacturer's
+  part number, so two listings of the same part would collide on it.
+  [scraper-design](docs/scraper-design.md)
+- **The price you pay is `promoPrice`, not `salePrice`.** On the first page captured all
+  three price fields were equal. Only a second, discounted page showed that `salePrice` is
+  the price before the discount. There is no fallback, because a failed read beats a
+  plausible wrong number. [liverpool-parser](docs/liverpool-parser.md)
+- **One product row, however many people watch it,** so each product costs one request
+  per check. Money is integer cents in every column, because `Numeric` on SQLite round-trips
+  through float. [database-design](docs/database-design.md)
+- **The alert rule lives on the tracking row**, including the part everyone forgets:
+  re-arming once the price goes back up. A caller cannot skip it.
+  [database-design](docs/database-design.md)
+- **The checker is a job inside the bot's process, not a cron job.** A bot that polls is
+  never idle, so a host that sleeps idle processes would break it anyway. One process,
+  one thing to deploy. [price-checker](docs/price-checker.md)
+- **Alerts are committed before they are sent.** This is a trade, not a solution. A failed
+  send means one missed alert, while the other order makes the bot repeat itself.
+  [price-checker](docs/price-checker.md)
+- **Retry only on 5xx.** A 5xx is the store saying it is broken, so waiting is the polite
+  response. A 403 is a refusal: it is written down, never retried.
+  [price-checker](docs/price-checker.md)
+- **The whole suite runs on SQLite and on Postgres.** The two disagree without saying so about
+  cascades, time zones and where NULL sorts. The second backend in CI turns "the models
+  handle it" from a claim into a check. [deployment](docs/deployment.md)
+- **Migrations are a deploy step, not part of startup.** A failed migration stops the
+  deploy where it can be read, instead of crash-looping the bot.
+  [deployment](docs/deployment.md)
+- **10 products per person, and a product nobody tracks is never re-read.** The cap alone
+  could be walked around by adding and removing products.
+  [bot-commands](docs/bot-commands.md)
+
+## Run it locally
+
+You need a bot token of your own from [@BotFather](https://t.me/BotFather). Only one
+process can poll a token at a time.
 
 ```bash
+cp .env.example .env         # set BOT_TOKEN
 docker compose up --build    # Postgres on host port 5433, migrations, then the bot
 ```
 
-The test suite runs on SQLite by default. Point it at a Postgres database it may wipe
-to run it there instead, which is what CI's second leg does:
+Or without Docker, on SQLite, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-docker compose up -d db
-docker compose exec db createdb -U price_tracker price_tracker_test
-TEST_DATABASE_URL=postgresql://price_tracker:price_tracker@127.0.0.1:5433/price_tracker_test uv run pytest
+uv sync
+cp .env.example .env         # set BOT_TOKEN
+uv run alembic upgrade head
+uv run price-tracker
 ```
 
-Run the spike:
+## Tests
 
 ```bash
-# Add product URLs to spike/targets.toml first.
-uv run python scripts/store_spike.py --label home --out spike-results/home.json
-
-# Same script, datacenter IP:
-gh workflow run store-spike.yml
+uv run pytest                # 360+ tests, about 20 seconds
+uv run pytest --cov          # with coverage, as CI runs it
+uv run ruff check . && uv run ruff format --check .
 ```
+
+- **No test touches the network.** The store pages in [`tests/fixtures/`](tests/fixtures/)
+  are real captures, saved byte for byte. The fetcher is a stub that serves them, and
+  Telegram is replaced by a list.
+- **91% line coverage, and CI fails below 88%.** Nearly all of what is not covered is the
+  Telegram adapters (`handlers.py`, `jobs.py`, `runtime.py`). They are kept thin so that
+  everything behind them can be tested without Telegram, and they were verified by hand
+  from a phone.
+- **CI runs the suite twice**, on SQLite and on Postgres 17. To run it on Postgres
+  locally, point it at a database it is allowed to wipe:
+
+  ```bash
+  docker compose up -d db
+  docker compose exec db createdb -U price_tracker price_tracker_test
+  TEST_DATABASE_URL=postgresql://price_tracker:price_tracker@127.0.0.1:5433/price_tracker_test uv run pytest
+  ```
+
+## Honest limitations
+
+- **Two stores.** Walmart blocks datacenter IPs behind a fake `200`. Amazon's conditions
+  of use forbid scraping. Mercado Libre does not put its prices in the server HTML, and its
+  API requires a registered app. [store-viability](docs/store-viability.md)
+- **Every six hours, and at most 25 products per pass**, stalest first. With more distinct
+  products than that, every product gets checked less often. Nobody is skipped, everybody
+  waits longer. The per-person cap bounds how much one person can slow everyone else down.
+- **A store redesign breaks its parser.** The bot then tells you the store changed its
+  page and logs the failure; it does not guess at a price.
+- **Free tiers, one process, no monitoring.** Northflank says its free sandbox is not for
+  production. Supabase pauses free projects that go quiet; the checker's queries every six
+  hours should keep it awake, but that is an expectation, not a guarantee. Nothing alerts
+  anyone if the bot stops.
+- **Mexican pesos only.** Liverpool never states a currency for its own products, so
+  pesos are assumed. A check fails the read if a page declares currencies and pesos are
+  not among them.
+- **No way to erase your data from the chat.** `/remove` stops tracking a product. Your
+  Telegram id stays in the database.
 
 ## Scraping conduct
 
-One request per product page, pauses between stores, a `User-Agent` that names this
-project and links to it, and `robots.txt` honoured before fetching. The only failure
-retried is a 5xx — the store saying it is broken. A refusal is never retried: it is a
-finding to record, not an obstacle to work around. No rotating proxies, no captcha
-solving, no browser impersonation. A store that blocks this bot gets dropped from the
-MVP and written down in `docs/store-viability.md`.
+One request per product page, pauses between requests to the same store, a `User-Agent`
+that names this project and links to it, and `robots.txt` honoured before any fetch. The
+only failure retried is a 5xx. No rotating proxies, no captcha solving, no browser
+impersonation. A store that blocks this bot is dropped and documented in
+[`docs/store-viability.md`](docs/store-viability.md).
 
-None of that is only prose. `HttpFetcher` has no way to send a browser string, a test
-asserts a `robots.txt` disallow means the product request is never made, and another
-counts the requests after a 403 to prove there was exactly one.
+None of that is only prose. `HttpFetcher` has no way to send a browser `User-Agent`, one
+test asserts that a `robots.txt` disallow means the product page is never requested, and
+another counts the requests after a 403 to prove there was exactly one.

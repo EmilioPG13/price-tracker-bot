@@ -382,12 +382,17 @@ was added, so the `/add` reply was the alert, and the checker correctly stayed q
 which means `last_alerted_at` survived the round trip through `timestamptz` and compared
 correctly against an aware `now`. That comparison is the one `UtcDateTime` exists for.
 
+## Answered since the deploy
+
+- **The six-hour fix holds in production.** On 2026-09-25 each product has a reading at
+  09:03, 15:03 and 21:03 UTC. The old code would have skipped 15:03.
+- **A restart does not cause a `Conflict`**, seen twice in the service logs. The old
+  container exits about four seconds after the new one's entrypoint starts, and the new
+  one takes about twenty to reach polling, so the two never poll at once. That holds
+  because boot is slow at 0.1 vCPU, not by design: a faster start could overlap for a
+  moment, and Telegram would answer one of them with `Conflict` until the old one exits.
+
 ## What phase 6 has not done yet
 
-- The README's final shape.
 - A week on Supabase, to see whether four queries a day keep the free project awake.
-- Read the first restart's logs. Northflank does not halt the old container until its
-  replacement is running, so for a moment two processes poll with one token and Telegram
-  should answer one of them with `Conflict`. The acceptance test's restart was the first
-  one; its logs have not been read yet.
 - Northflank's billing page, a few days in. It should read $0.00.
