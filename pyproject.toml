@@ -37,6 +37,7 @@ price-tracker = "price_tracker.main:run"
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
+    "pytest-cov>=7.1.0",
     "respx>=0.22",
     "ruff>=0.9",
 ]
@@ -75,3 +76,15 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 # scripts/ is not a package; this makes the spike importable by its tests.
 pythonpath = ["scripts"]
+
+# Measured only when asked for (`pytest --cov`, which CI does), so a local run stays fast.
+[tool.coverage.run]
+source = ["price_tracker"]
+
+[tool.coverage.report]
+# 91% when this was set. Most of the gap is the Telegram adapters — handlers, jobs,
+# runtime — kept thin on purpose so everything behind them is tested without Telegram.
+# The slack below 91 is for the two backends, which cover slightly different lines.
+fail_under = 88
+show_missing = true
+skip_covered = true
